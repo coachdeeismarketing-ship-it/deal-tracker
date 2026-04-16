@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deal Tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:#0d0d1a;--surface:#161628;--card:#1e1e35;--border:#2e2e50;
+  --green:#00e5a0;--orange:#ff9f2f;--red:#ff4060;--purple:#9b7dff;--blue:#4db8ff;--gold:#f5c842;
+  --text:#f0f0ff;--muted:#8888aa;
+}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh;padding:20px 16px 100px;max-width:900px;margin:0 auto;}
+.header{margin-bottom:20px;}
+.header h1{font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:var(--green);letter-spacing:-0.5px;}
+.header p{color:var(--muted);font-size:0.82rem;margin-top:4px;}
+
+/* TABS */
+.tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;background:var(--surface);border-radius:12px;padding:6px;margin-bottom:18px;}
+.tab{padding:10px 4px;border:none;border-radius:8px;background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:0.72rem;font-weight:600;cursor:pointer;transition:all 0.2s;text-align:center;line-height:1.3;}
+.tab.active{background:var(--card);color:var(--text);border:1px solid var(--border);}
+
+/* LOADING */
+.loading-bar{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center;color:var(--muted);font-size:0.85rem;margin-bottom:13px;}
+
+/* CARD */
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:14px;}
+.card-title{font-size:0.62rem;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:14px;}
+
+/* MIC */
+.mic-btn{width:100%;padding:14px;border:none;border-radius:11px;font-family:'DM Sans',sans-serif;font-size:0.95rem;font-weight:700;cursor:pointer;background:var(--green);color:#000;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:10px;transition:all 0.2s;}
+.mic-btn.listening{background:var(--red);color:#fff;}
+.mic-btn.processing{background:var(--purple);color:#fff;}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,64,96,0.5);}50%{box-shadow:0 0 0 14px rgba(255,64,96,0);}}
+.mic-btn.listening{animation:pulse 1s infinite;}
+.voice-area{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px;min-height:50px;font-size:0.9rem;line-height:1.6;margin-bottom:10px;transition:all 0.2s;display:none;}
+.voice-area.on{border-color:var(--green);box-shadow:0 0 0 3px rgba(0,229,160,0.1);display:block;}
+.voice-area.processing{border-color:var(--purple);display:block;}
+.correction-row{display:none;gap:8px;margin-bottom:10px;}
+.correction-row.show{display:flex;}
+.btn-sm{flex:1;padding:10px;border:none;border-radius:9px;font-family:'DM Sans',sans-serif;font-size:0.82rem;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);}
+.btn-sm.active{background:rgba(155,125,255,0.15);border-color:var(--purple);color:var(--purple);}
+
+/* STATUS */
+.status{padding:10px 13px;border-radius:9px;font-size:0.82rem;margin-bottom:11px;display:none;line-height:1.4;}
+.status.show{display:block;}
+.s-ok{background:#082a18;border:1px solid var(--green);color:var(--green);}
+.s-err{background:#2a0810;border:1px solid var(--red);color:var(--red);}
+.s-info{background:#100a2a;border:1px solid var(--purple);color:var(--purple);}
+
+/* FORM */
+.fg{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px;}
+.fi{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 13px;}
+.fi label{display:block;font-size:0.6rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:5px;}
+.fi input,.fi select,.fi textarea{background:transparent;border:none;color:var(--text);font-family:'DM Sans',sans-serif;font-size:0.92rem;font-weight:600;width:100%;outline:none;}
+.fi input::placeholder{color:var(--muted);font-weight:400;}
+.fi textarea{resize:none;height:46px;font-size:0.84rem;}
+.fi.full{grid-column:1/-1;}
+.fi select option{background:var(--card);color:var(--text);}
+.fi.err-field{border-color:var(--red);}
+.vin-hint{font-size:0.67rem;color:var(--red);margin-top:3px;display:none;}
+.vin-hint.show{display:block;}
+
+/* CALC BOX */
+.calc-box{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:13px;margin-bottom:13px;display:none;}
+.calc-row{display:flex;justify-content:space-between;font-size:0.85rem;padding:6px 0;border-bottom:1px solid var(--border);}
+.calc-row:last-child{border-bottom:none;padding-top:9px;font-family:'Syne',sans-serif;font-size:0.98rem;font-weight:700;}
+.calc-label{color:var(--muted);}
+
+/* BUCKET PREVIEW */
+.bucket-preview{background:var(--bg);border:1px solid rgba(155,125,255,0.35);border-radius:10px;padding:13px;margin-bottom:13px;display:none;}
+.bucket-preview-title{font-size:0.6rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--purple);margin-bottom:11px;}
+.bp-row{display:flex;justify-content:space-between;font-size:0.82rem;padding:5px 0;border-bottom:1px solid var(--border);}
+.bp-row:last-child{border-bottom:none;}
+.bp-label{color:var(--muted);}
+.bp-val{color:var(--purple);font-weight:600;}
+
+/* SAVE BTN */
+.save-btn{width:100%;padding:15px;border:none;border-radius:12px;font-family:'Syne',sans-serif;font-size:1rem;font-weight:800;cursor:pointer;background:var(--green);color:#000;letter-spacing:0.3px;}
+.save-btn:hover{filter:brightness(1.08);}
+.save-btn:disabled{opacity:0.5;cursor:not-allowed;}
+
+/* TOTALS */
+.totals-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;}
+.tc{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 8px;text-align:center;}
+.tc-l{font-size:0.52rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:5px;}
+.tc-v{font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;}
+
+/* FILTERS */
+.filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:9px;}
+.filter-group{flex:1;min-width:90px;}
+.filter-label{font-size:0.6rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:4px;}
+.filter-group input,.filter-group select{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 10px;font-family:'DM Sans',sans-serif;font-size:0.82rem;outline:none;width:100%;}
+.search-wrap{flex:2;min-width:160px;position:relative;}
+.search-wrap input{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 10px 9px 28px;font-family:'DM Sans',sans-serif;font-size:0.82rem;outline:none;}
+.search-icon{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:0.8rem;pointer-events:none;}
+.btn-row{display:flex;gap:8px;margin-top:9px;}
+.btn{flex:1;padding:10px 6px;border:none;border-radius:9px;font-family:'DM Sans',sans-serif;font-size:0.8rem;font-weight:700;cursor:pointer;}
+.b-clear{background:var(--surface);border:1px solid var(--border);color:var(--muted);}
+.b-csv{background:var(--purple);color:#fff;}
+.b-print{background:var(--surface);border:1px solid var(--border);color:var(--text);}
+
+/* TABLE */
+.table-wrap{overflow-x:auto;border-radius:12px;border:1px solid var(--border);}
+table{width:100%;border-collapse:collapse;font-size:0.76rem;}
+thead{background:var(--bg);}
+th{padding:10px 10px;text-align:left;font-size:0.56rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap;}
+td{padding:11px 10px;border-bottom:1px solid #1a1a30;white-space:nowrap;vertical-align:middle;}
+tr:last-child td{border-bottom:none;}
+tr.hl{background:rgba(0,229,160,0.05);}
+.badge{background:rgba(155,125,255,0.18);color:var(--purple);padding:2px 8px;border-radius:20px;font-size:0.62rem;font-weight:700;text-transform:uppercase;}
+.badge-src{background:rgba(77,184,255,0.15);color:var(--blue);padding:2px 8px;border-radius:20px;font-size:0.62rem;font-weight:700;}
+.green{color:var(--green);font-weight:700;}
+.orange{color:var(--orange);font-weight:700;}
+.red-v{color:var(--red);font-weight:700;}
+.act-btn{background:var(--surface);border:1px solid var(--border);border-radius:7px;cursor:pointer;font-size:0.78rem;padding:5px 9px;color:var(--text);margin:1px;font-family:'DM Sans',sans-serif;font-weight:600;}
+.act-btn:hover{background:rgba(255,255,255,0.08);}
+.act-btn.del:hover{background:rgba(255,64,96,0.15);border-color:var(--red);color:var(--red);}
+.empty-row{text-align:center;padding:32px;color:var(--muted);font-style:italic;font-size:0.84rem;}
+
+/* BUCKETS */
+.envelope-card{background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:15px;margin-bottom:11px;overflow:hidden;width:100%;}
+.env-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:11px;}
+.env-name{font-family:'Syne',sans-serif;font-size:0.98rem;font-weight:700;}
+.env-group{font-size:0.7rem;color:var(--muted);margin-top:2px;}
+.env-pct{background:rgba(155,125,255,0.18);color:var(--purple);padding:4px 10px;border-radius:20px;font-size:0.72rem;font-weight:700;white-space:nowrap;}
+.env-pct.done{background:rgba(0,229,160,0.15);color:var(--green);}
+.progress-bar{background:var(--border);border-radius:20px;height:8px;margin-bottom:10px;overflow:hidden;}
+.progress-fill{height:100%;border-radius:20px;background:var(--purple);transition:width 0.4s;}
+.progress-fill.complete{background:var(--green);}
+
+/* ENV STATS - stacked layout, no overflow */
+.env-stats{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:11px;width:100%;}
+.env-stat{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;min-width:0;overflow:hidden;}
+.env-stat-label{font-size:0.55rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:3px;white-space:nowrap;}
+.env-stat-val{font-family:'Syne',sans-serif;font-size:0.88rem;font-weight:700;word-break:break-all;}
+
+.env-actions{display:flex;gap:7px;}
+.env-btn{flex:1;padding:9px;border:none;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:0.76rem;font-weight:600;cursor:pointer;}
+.env-btn-add{background:rgba(0,229,160,0.12);color:var(--green);border:1px solid rgba(0,229,160,0.3);}
+.env-btn-history{background:rgba(255,255,255,0.05);color:var(--muted);border:1px solid var(--border);}
+.env-btn-edit{background:rgba(155,125,255,0.1);color:var(--purple);border:1px solid rgba(155,125,255,0.3);}
+.history-list{margin-top:11px;display:none;border-top:1px solid var(--border);padding-top:11px;}
+.history-list.open{display:block;}
+.history-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:0.8rem;}
+.history-item:last-child{border-bottom:none;}
+.h-source{color:var(--muted);font-size:0.72rem;}
+.h-amt{font-weight:700;color:var(--green);}
+.h-date{color:var(--muted);font-size:0.7rem;}
+
+/* SETTINGS */
+.settings-row{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--border);font-size:0.86rem;}
+.settings-row:last-child{border-bottom:none;}
+.settings-label{color:var(--text);font-weight:500;}
+.settings-sub{font-size:0.72rem;color:var(--muted);margin-top:2px;}
+.settings-val{color:var(--purple);font-weight:700;font-size:0.84rem;white-space:nowrap;margin-left:10px;}
+
+/* INSIGHTS */
+.insight-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+.insight-card{background:var(--bg);border:1px solid var(--border);border-radius:11px;padding:13px;}
+.insight-name{font-family:'Syne',sans-serif;font-size:0.84rem;font-weight:700;margin-bottom:8px;}
+.insight-stat{display:flex;justify-content:space-between;font-size:0.76rem;padding:4px 0;border-bottom:1px solid var(--border);}
+.insight-stat:last-child{border-bottom:none;}
+.insight-stat span:last-child{font-weight:600;}
+.month-list{display:flex;flex-direction:column;gap:8px;}
+.month-row{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
+.month-name{font-weight:700;font-size:0.86rem;margin-bottom:6px;}
+.month-stats{display:flex;gap:11px;font-size:0.76rem;flex-wrap:wrap;}
+.month-stats span{color:var(--muted);}
+.month-stats strong{color:var(--text);}
+
+/* BACKUP */
+.backup-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.bcard{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:15px;text-align:center;}
+.bcard .icon{font-size:1.9rem;margin-bottom:7px;}
+.bcard h3{font-size:0.84rem;font-weight:700;margin-bottom:6px;}
+.bcard p{font-size:0.72rem;color:var(--muted);margin-bottom:11px;line-height:1.45;}
+.bcard button{width:100%;padding:10px;border:none;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:0.82rem;font-weight:700;cursor:pointer;}
+.storage-info{margin-top:13px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:0.84rem;line-height:1.6;}
+
+/* MODALS */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:1000;overflow-y:auto;padding:20px 14px;}
+.modal-overlay.show{display:flex;align-items:flex-start;justify-content:center;}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:20px;width:100%;max-width:500px;margin:auto;}
+.modal-title{font-family:'Syne',sans-serif;font-size:1.05rem;font-weight:800;margin-bottom:15px;color:var(--green);}
+.modal-btns{display:flex;gap:9px;margin-top:14px;}
+.modal-btns button{flex:1;padding:13px;border:none;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:0.9rem;font-weight:700;cursor:pointer;}
+.m-save{background:var(--green);color:#000;}
+.m-cancel{background:var(--surface);border:1px solid var(--border);color:var(--muted);}
+.m-danger{background:var(--red);color:#fff;}
+
+#restoreInput{display:none;}
+
+@media(min-width:600px){
+  .fg{grid-template-columns:1fr 1fr 1fr;}
+  .totals-grid{grid-template-columns:repeat(4,1fr);}
+  .insight-grid{grid-template-columns:repeat(3,1fr);}
+}
+
+@media print{
+  .tabs,.mic-btn,.correction-row,.btn-row,.act-btn,.modal-overlay,.status,#tab-entry,#tab-insights,#tab-buckets,#tab-backup{display:none!important;}
+  body{background:#fff;color:#000;padding:8px;}
+  .card{border:1px solid #ccc;}
+  th,td{border:1px solid #ddd!important;padding:5px 7px;}
+  thead{background:#f5f5f5!important;}
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🚗 Deal Tracker</h1>
+  <p>Speak your deals — everything auto-calculates &amp; saves</p>
+</div>
+
+<div class="tabs" style="grid-template-columns:repeat(6,1fr);">
+  <button class="tab active" onclick="showTab('entry')">➕ New Deal</button>
+  <button class="tab" onclick="showTab('tracker')">📊 Tracker</button>
+  <button class="tab" onclick="showTab('buckets')">🪣 Buckets</button>
+  <button class="tab" onclick="showTab('insights')">📈 Insights</button>
+  <button class="tab" onclick="showTab('gas')">⛽ Gas</button>
+  <button class="tab" onclick="showTab('backup')">🔒 Backup</button>
+</div>
+
+<!-- ══════════ TAB: NEW DEAL ══════════ -->
+<div id="tab-entry">
+  <div class="card">
+    <div class="card-title">🎙 Speak your deal — or fill in the fields below</div>
+    <button class="mic-btn" id="micBtn" onclick="toggleMic()">🎙 &nbsp;Tap to Speak Your Deal</button>
+    <div class="voice-area" id="voiceArea"></div>
+    <div class="correction-row" id="correctionRow">
+      <button class="btn-sm" id="correctBtn" onclick="toggleCorrection()">🎙 Speak a Correction</button>
+      <button class="btn-sm" style="flex:0.5" onclick="resetVoice()">✖ Reset</button>
+    </div>
+    <div id="fallbackVoiceRow" style="display:none;gap:8px;margin-bottom:10px;">
+      <button class="btn-sm" id="fallbackBtn" onclick="startBrowserSpeech()" style="background:rgba(245,200,66,0.1);border-color:var(--gold);color:var(--gold)">🎙 Try Browser Method</button>
+    </div>
+    <div class="status" id="statusBox"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">📋 Deal Details</div>
+    <div class="fg">
+      <div class="fi full"><label>Make &amp; Model</label><input type="text" id="f_car" placeholder="e.g. 2019 Honda Accord"></div>
+      <div class="fi full">
+        <label>Last 6 of VIN</label>
+        <input type="text" id="f_vin" placeholder="6 characters required" maxlength="6" oninput="this.value=this.value.toUpperCase();vinCheck();">
+        <div class="vin-hint" id="vinHint">⚠ Must be exactly 6 characters</div>
+      </div>
+      <div class="fi full">
+        <label>Lead Source</label>
+        <select id="f_source">
+          <option value="">-- Select Source --</option>
+          <option value="Junk Car Lady">Junk Car Lady</option>
+          <option value="Lady Buyer">Lady Buyer</option>
+          <option value="Copart">Copart</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="fi full">
+        <label>City Picked Up From</label>
+        <select id="f_city" onchange="cityChanged()">
+          <option value="">-- Select City --</option>
+          <option value="Raleigh">Raleigh</option>
+          <option value="Wake Forest">Wake Forest</option>
+          <option value="Cary">Cary</option>
+          <option value="Garner">Garner</option>
+          <option value="Knightdale">Knightdale</option>
+          <option value="Clayton">Clayton</option>
+          <option value="Durham">Durham</option>
+          <option value="Outside Area">Outside Service Area</option>
+        </select>
+      </div>
+      <div class="fi" id="milesRow" style="display:none"><label>Round Trip Miles</label><input type="number" id="f_miles" placeholder="e.g. 120" oninput="recalc()"></div>
+      <div class="fi" id="runnerRow" style="display:none"><label>Runner Fee ($)</label><input type="number" id="f_runner_out" placeholder="75–100" oninput="recalc()"></div>
+      <div class="fi full"><label>Car Cost — What You Paid ($)</label><input type="number" id="f_cost" placeholder="0" oninput="recalc()"></div>
+      <div class="fi full"><label>Check Amount — What You Received ($)</label><input type="number" id="f_check" placeholder="0" oninput="recalc()"></div>
+      <div class="fi"><label>Referral — Person's Name</label><input type="text" id="f_ref_name" placeholder="Leave blank if none"></div>
+      <div class="fi"><label>Referral Fee ($)</label><input type="number" id="f_ref_fee" placeholder="0" oninput="recalc()"></div>
+      <div class="fi"><label>Allocated to Bills ($)</label><input type="number" id="f_bills" placeholder="0" oninput="checkBillsBuckets()"></div>
+      <div class="fi"><label>Allocated to Buckets ($)</label><input type="number" id="f_buckets" placeholder="0" oninput="recalc();showBucketPreview();checkBillsBuckets();"></div>
+      <div class="fi full"><label>Date</label><input type="date" id="f_date"></div>
+      <div class="fi full"><label>Notes (optional)</label><textarea id="f_notes" placeholder="Any extra details…"></textarea></div>
+    </div>
+
+    <div class="calc-box" id="calcBox">
+      <div class="calc-row"><span class="calc-label">Car Cost</span><span id="c_cost">$0</span></div>
+      <div class="calc-row"><span class="calc-label">Runner Fee</span><span id="c_runner">$0</span></div>
+      <div class="calc-row"><span class="calc-label">Gas / Mileage</span><span id="c_gas">$0</span></div>
+      <div class="calc-row"><span class="calc-label">Referral Fee</span><span id="c_ref">$0</span></div>
+      <div class="calc-row"><span class="calc-label" style="color:var(--orange)">Total Expenses</span><span id="c_exp" style="color:var(--orange)">$0</span></div>
+      <div class="calc-row"><span class="calc-label">Check Amount</span><span id="c_check">$0</span></div>
+      <div class="calc-row"><span>💰 Net Profit</span><span id="c_profit">$0</span></div>
+    </div>
+
+    <div class="bucket-preview" id="bucketPreview">
+      <div class="bucket-preview-title">🪣 Bucket Breakdown — How this splits into your envelopes</div>
+      <div id="bucketPreviewRows"></div>
+    </div>
+
+    <div id="billsBucketsWarning" style="display:none;background:#2a0810;border:1px solid var(--red);color:var(--red);border-radius:9px;padding:10px 13px;font-size:0.82rem;margin-bottom:12px;"></div>
+
+    <button class="save-btn" id="saveDealBtn" onclick="addDeal()">✅ Save Deal to Tracker</button>
+  </div>
+</div>
+
+<!-- ══════════ TAB: TRACKER ══════════ -->
+<div id="tab-tracker" style="display:none">
+  <div class="totals-grid">
+    <div class="tc"><div class="tc-l">Total Deals</div><div class="tc-v" id="t_deals" style="color:var(--text)">0</div></div>
+    <div class="tc"><div class="tc-l">Avg Profit</div><div class="tc-v" id="t_avg" style="color:var(--green)">$0</div></div>
+    <div class="tc"><div class="tc-l">Revenue</div><div class="tc-v" id="t_rev" style="color:var(--orange)">$0</div></div>
+    <div class="tc"><div class="tc-l">Net Profit</div><div class="tc-v" id="t_profit" style="color:var(--green)">$0</div></div>
+    <div class="tc"><div class="tc-l">Car Cost</div><div class="tc-v" id="t_car" style="color:var(--text)">$0</div></div>
+    <div class="tc"><div class="tc-l">Gas</div><div class="tc-v" id="t_gas" style="color:var(--text)">$0</div></div>
+    <div class="tc"><div class="tc-l">Runner</div><div class="tc-v" id="t_runner" style="color:var(--text)">$0</div></div>
+    <div class="tc"><div class="tc-l">Referrals</div><div class="tc-v" id="t_ref" style="color:var(--text)">$0</div></div>
+    <div class="tc"><div class="tc-l">Expenses</div><div class="tc-v" id="t_exp" style="color:var(--orange)">$0</div></div>
+    <div class="tc"><div class="tc-l">Bills</div><div class="tc-v" id="t_bills" style="color:var(--blue)">$0</div></div>
+    <div class="tc"><div class="tc-l">Buckets</div><div class="tc-v" id="t_buckets" style="color:var(--blue)">$0</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🔍 Search &amp; Filter</div>
+    <div class="filter-bar">
+      <div class="search-wrap"><span class="search-icon">🔍</span><input type="text" id="searchInput" placeholder="Search VIN, car, city, name…" oninput="renderTable()"></div>
+    </div>
+    <div class="filter-bar">
+      <div class="filter-group"><div class="filter-label">City</div>
+        <select id="filterCity" onchange="renderTable()">
+          <option value="">All Cities</option>
+          <option value="Raleigh">Raleigh</option>
+          <option value="Wake Forest">Wake Forest</option>
+          <option value="Cary">Cary</option>
+          <option value="Garner">Garner</option>
+          <option value="Knightdale">Knightdale</option>
+          <option value="Clayton">Clayton</option>
+          <option value="Durham">Durham</option>
+          <option value="Outside Area">Outside Area</option>
+        </select>
+      </div>
+      <div class="filter-group"><div class="filter-label">Lead Source</div>
+        <select id="filterSource" onchange="renderTable()">
+          <option value="">All Sources</option>
+          <option value="Junk Car Lady">Junk Car Lady</option>
+          <option value="Lady Buyer">Lady Buyer</option>
+          <option value="Copart">Copart</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="filter-group"><div class="filter-label">Start Date</div><input type="date" id="filterFrom" onchange="renderTable()"></div>
+      <div class="filter-group"><div class="filter-label">End Date</div><input type="date" id="filterTo" onchange="renderTable()"></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn b-clear" onclick="clearFilters()">✖ Clear</button>
+      <button class="btn b-csv" onclick="exportCSV()">⬇ CSV</button>
+      <button class="btn b-print" onclick="window.print()">🖨 Print</button>
+    </div>
+  </div>
+
+  <div class="loading-bar" id="tableLoading" style="display:none">Loading deals…</div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Date</th><th>Car</th><th>VIN</th><th>Source</th><th>City</th><th>Car Cost</th><th>Runner</th><th>Gas</th><th>Referral</th><th>Expenses</th><th>Check</th><th>Profit</th><th>Bills</th><th>Buckets</th><th>Notes</th><th>Actions</th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══════════ TAB: BUCKETS ══════════ -->
+<div id="tab-buckets" style="display:none">
+  <div class="totals-grid" id="bucketSummaryGrid"></div>
+  <div id="envelopesList"></div>
+  <div class="card">
+    <div class="card-title">⚙️ Settings — Edit Percentages &amp; Goals</div>
+    <div id="settingsList"></div>
+    <div style="margin-top:13px;"><button class="save-btn" style="font-size:0.86rem;padding:12px" onclick="openAddEnvelope()">+ Add New Envelope</button></div>
+  </div>
+</div>
+
+<!-- ══════════ TAB: INSIGHTS ══════════ -->
+<div id="tab-insights" style="display:none">
+  <div class="card">
+    <div class="card-title">📍 Performance by City</div>
+    <div class="insight-grid" id="cityGrid"><div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-style:italic;font-size:0.84rem;">No deals yet</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">📡 Performance by Lead Source</div>
+    <div class="insight-grid" id="sourceGrid"><div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-style:italic;font-size:0.84rem;">No deals yet</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">📅 Monthly Breakdown</div>
+    <div class="month-list" id="monthList"><div style="text-align:center;padding:20px;color:var(--muted);font-style:italic;font-size:0.84rem;">No deals yet</div></div>
+  </div>
+</div>
+
+<!-- ══════════ TAB: GAS & MAINTENANCE ══════════ -->
+<div id="tab-gas" style="display:none">
+
+  <!-- SUMMARY -->
+  <div class="totals-grid" style="grid-template-columns:repeat(3,1fr);">
+    <div class="tc"><div class="tc-l">Collected from Deals</div><div class="tc-v" id="gas_collected" style="color:var(--green)">$0</div></div>
+    <div class="tc"><div class="tc-l">Total Spent</div><div class="tc-v" id="gas_spent" style="color:var(--orange)">$0</div></div>
+    <div class="tc"><div class="tc-l">Surplus / Deficit</div><div class="tc-v" id="gas_net">$0</div></div>
+  </div>
+
+  <!-- BREAKDOWN -->
+  <div class="totals-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:14px;">
+    <div class="tc"><div class="tc-l">Gas Expenses</div><div class="tc-v" id="gas_gas_total" style="color:var(--text)">$0</div></div>
+    <div class="tc"><div class="tc-l">Repair Expenses</div><div class="tc-v" id="gas_repair_total" style="color:var(--text)">$0</div></div>
+  </div>
+
+  <!-- ADD EXPENSE -->
+  <div class="card">
+    <div class="card-title">⛽ Log a New Expense</div>
+    <div class="fg">
+      <div class="fi full">
+        <label>Expense Type</label>
+        <select id="gas_type">
+          <option value="gas">⛽ Gas Fillup</option>
+          <option value="repair">🔧 Car Repair / Maintenance</option>
+        </select>
+      </div>
+      <div class="fi full"><label>Amount ($)</label><input type="number" id="gas_amount" placeholder="0"></div>
+      <div class="fi full"><label>Description</label><input type="text" id="gas_desc" placeholder="e.g. Gas fillup, Oil change, Brake job…"></div>
+      <div class="fi full"><label>Date</label><input type="date" id="gas_date"></div>
+    </div>
+    <button class="save-btn" onclick="addGasExpense()">➕ Log Expense</button>
+    <div class="status" id="gasStatusBox"></div>
+  </div>
+
+  <!-- EXPENSE HISTORY -->
+  <div class="card">
+    <div class="card-title">📋 Expense History</div>
+    <div id="gasExpenseList"><div style="text-align:center;padding:20px;color:var(--muted);font-style:italic;font-size:0.82rem;">No expenses logged yet</div></div>
+  </div>
+</div>
+
+<!-- ══════════ TAB: BACKUP ══════════ -->
+<div id="tab-backup" style="display:none">
+  <div class="card">
+    <div class="card-title">🔒 Data Protection &amp; Backup</div>
+    <div class="backup-grid">
+      <div class="bcard"><div class="icon">☁️</div><h3>Cloud Database</h3><p>Your data is saved to Supabase automatically. Works on any device, never lost.</p><button style="background:var(--green);color:#000" onclick="loadAllData()">🔄 Refresh Data</button></div>
+      <div class="bcard"><div class="icon">📊</div><h3>Export CSV</h3><p>Download as spreadsheet for Excel or Google Sheets.</p><button style="background:var(--orange);color:#000" onclick="exportCSV()">Download CSV</button></div>
+      <div class="bcard"><div class="icon">💾</div><h3>Export Backup</h3><p>Download full JSON backup. Save to Google Drive for extra safety.</p><button style="background:var(--purple);color:#fff" onclick="exportBackup()">Download Backup</button></div>
+      <div class="bcard"><div class="icon">🖨</div><h3>Print / PDF</h3><p>Print your tracker or save as PDF using your browser.</p><button style="background:var(--surface);border:1px solid var(--border);color:var(--text)" onclick="showTab('tracker');setTimeout(()=>window.print(),300)">Print Tracker</button></div>
+    </div>
+    <div class="storage-info" id="storageInfo">Loading…</div>
+  </div>
+</div>
+
+<!-- EDIT DEAL MODAL -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <div class="modal-title">✏️ Edit Deal</div>
+    <div class="fg">
+      <div class="fi full"><label>Make &amp; Model</label><input type="text" id="e_car"></div>
+      <div class="fi full"><label>Last 6 of VIN</label><input type="text" id="e_vin" maxlength="6" oninput="this.value=this.value.toUpperCase()"></div>
+      <div class="fi full"><label>Lead Source</label>
+        <select id="e_source">
+          <option value="Junk Car Lady">Junk Car Lady</option>
+          <option value="Lady Buyer">Lady Buyer</option>
+          <option value="Copart">Copart</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="fi full"><label>City</label>
+        <select id="e_city" onchange="editCityChanged()">
+          <option value="Raleigh">Raleigh</option><option value="Wake Forest">Wake Forest</option><option value="Cary">Cary</option><option value="Garner">Garner</option><option value="Knightdale">Knightdale</option><option value="Clayton">Clayton</option><option value="Durham">Durham</option><option value="Outside Area">Outside Service Area</option>
+        </select>
+      </div>
+      <div class="fi" id="e_milesRow" style="display:none"><label>Round Trip Miles</label><input type="number" id="e_miles"></div>
+      <div class="fi" id="e_runnerRow" style="display:none"><label>Runner Fee ($)</label><input type="number" id="e_runner_out"></div>
+      <div class="fi full"><label>Car Cost ($)</label><input type="number" id="e_cost"></div>
+      <div class="fi full"><label>Check Amount ($)</label><input type="number" id="e_check"></div>
+      <div class="fi"><label>Bills ($)</label><input type="number" id="e_bills"></div>
+      <div class="fi"><label>Buckets ($)</label><input type="number" id="e_buckets"></div>
+      <div class="fi"><label>Referral Name</label><input type="text" id="e_ref_name"></div>
+      <div class="fi"><label>Referral Fee ($)</label><input type="number" id="e_ref_fee"></div>
+      <div class="fi full"><label>Date</label><input type="date" id="e_date"></div>
+      <div class="fi full"><label>Notes</label><textarea id="e_notes" style="height:50px;resize:none"></textarea></div>
+    </div>
+    <div class="modal-btns"><button class="m-cancel" onclick="closeEdit()">Cancel</button><button class="m-save" onclick="saveEdit()">Save Changes</button></div>
+  </div>
+</div>
+
+<!-- DIRECT DEPOSIT MODAL -->
+<div class="modal-overlay" id="depositModal">
+  <div class="modal">
+    <div class="modal-title">💵 Add Direct Deposit</div>
+    <p style="font-size:0.84rem;color:var(--muted);margin-bottom:14px;" id="depositEnvName"></p>
+    <div class="fg">
+      <div class="fi full"><label>Amount ($)</label><input type="number" id="dep_amount" placeholder="0"></div>
+      <div class="fi full"><label>Where It Came From</label><input type="text" id="dep_note" placeholder="e.g. Extra cash from side job…"></div>
+      <div class="fi full"><label>Date</label><input type="date" id="dep_date"></div>
+    </div>
+    <div class="modal-btns"><button class="m-cancel" onclick="closeDeposit()">Cancel</button><button class="m-save" onclick="saveDeposit()">Add to Envelope</button></div>
+  </div>
+</div>
+
+<!-- EDIT ENVELOPE MODAL -->
+<div class="modal-overlay" id="envEditModal">
+  <div class="modal">
+    <div class="modal-title" id="envEditTitle">✏️ Edit Envelope</div>
+    <div class="fg">
+      <div class="fi full"><label>Envelope Name</label><input type="text" id="env_name"></div>
+      <div class="fi"><label>Percentage (%)</label><input type="number" id="env_pct" min="0" max="100"></div>
+      <div class="fi"><label>Goal ($) — 0 for no goal</label><input type="number" id="env_goal"></div>
+      <div class="fi full"><label>Category</label><input type="text" id="env_group" placeholder="e.g. Obligations, Growth"></div>
+      <div class="fi full"><label>When Done, Reallocate To</label><input type="text" id="env_realloc" placeholder="e.g. 1% to Savings, 2% to Moving"></div>
+    </div>
+    <div class="modal-btns">
+      <button class="m-cancel" onclick="closeEnvEdit()">Cancel</button>
+      <button class="m-danger" id="envDeleteBtn" onclick="deleteEnvelope()" style="display:none">Delete</button>
+      <button class="m-save" onclick="saveEnvelope()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SUPABASE ──
+const SUPA_URL = 'https://lgytyiqdqmqxhbikpfeh.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxneXR5aXFkcW1xeGhiaWtwZmVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NjIyMTksImV4cCI6MjA5MTMzODIxOX0.fdCU8mNIVsxfozgDQEJsK_4IbtUYkjJ5ODaQj-sYlGM';
+const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
+
+// ── CITY DATA ──
+const CITIES={
+  'Raleigh':{runner:25,gas:40},'Wake Forest':{runner:50,gas:45},'Cary':{runner:50,gas:45},
+  'Garner':{runner:50,gas:45},'Knightdale':{runner:50,gas:40},'Clayton':{runner:50,gas:55},'Durham':{runner:50,gas:60}
+};
+const MILEAGE_RATE=0.725;
+
+// ── DEFAULT ENVELOPES ──
+const DEFAULT_ENVELOPES=[
+  {id:'e1',name:'Ms. Crooms',pct:13,goal:3000,grp:'Obligations',realloc:'',balance:0},
+  {id:'e2',name:'Mom',pct:12,goal:390,grp:'Obligations',realloc:'',balance:0},
+  {id:'e3',name:'Website Lady',pct:3,goal:300,grp:'Obligations',realloc:'1% to Savings, 2% to Moving',balance:0},
+  {id:'e4',name:'Taxes',pct:10,goal:0,grp:'Obligations',realloc:'',balance:0},
+  {id:'e5',name:'Savings',pct:20,goal:0,grp:'Growth + Wealth',realloc:'',balance:0},
+  {id:'e6',name:'Marketing',pct:17,goal:0,grp:'Growth + Wealth',realloc:'',balance:0},
+  {id:'e7',name:'Moving',pct:10,goal:4000,grp:'Growth + Wealth',realloc:'',balance:0},
+  {id:'e8',name:'Cruise',pct:5,goal:3000,grp:'Growth + Wealth',realloc:'',balance:0},
+  {id:'e9',name:'Giving',pct:10,goal:0,grp:'Lifestyle',realloc:'',balance:0},
+];
+
+// ── STATE ──
+let deals=[], envelopes=[], envHistory=[], listening=false, correcting=false, recog=null, editingId=null, depositEnvId=null, editingEnvId=null;
+
+// ── INIT ──
+async function init(){
+  document.getElementById('f_date').value=new Date().toISOString().split('T')[0];
+  envelopes=JSON.parse(JSON.stringify(DEFAULT_ENVELOPES));
+  await loadAllData();
+}
+
+async function loadAllData(){
+  showStatus('Loading your data…','s-info');
+  try{
+    // Load deals
+    const {data:dealsData,error:dealsErr}=await sb.from('deals').select('*').order('created_at',{ascending:false});
+    if(dealsErr) throw dealsErr;
+    deals=dealsData||[];
+
+    // Load envelope balances
+    const {data:envData}=await sb.from('envelope_balances').select('*');
+    // Always start with defaults as base
+    envelopes=JSON.parse(JSON.stringify(DEFAULT_ENVELOPES));
+    if(envData&&envData.length>0){
+      // Merge saved data into defaults
+      envelopes=envelopes.map(def=>{
+        const saved=envData.find(e=>e.id===def.id);
+        return saved?{...def,name:saved.name,pct:saved.pct,goal:saved.goal,grp:saved.grp,realloc:saved.realloc,balance:saved.balance}:{...def};
+      });
+      // Add any custom envelopes not in defaults
+      envData.forEach(e=>{ if(!DEFAULT_ENVELOPES.find(d=>d.id===e.id)) envelopes.push({id:e.id,name:e.name,pct:e.pct,goal:e.goal,grp:e.grp,realloc:e.realloc,balance:e.balance}); });
+    }
+    // Always upsert all envelopes to DB to make sure they exist
+    for(const env of envelopes){
+      await sb.from('envelope_balances').upsert({id:env.id,name:env.name,pct:env.pct,goal:env.goal,grp:env.grp,realloc:env.realloc,balance:env.balance});
+    }
+
+    // Load envelope history
+    const {data:histData}=await sb.from('envelope_history').select('*').order('created_at',{ascending:false});
+    envHistory=histData||[];
+
+    document.getElementById('statusBox').className='status';
+    updateStorageInfo();
+  }catch(err){
+    showStatus('Could not load data: '+err.message,'s-err');
+  }
+}
+
+// ── TABS ──
+function showTab(name){
+  ['entry','tracker','buckets','insights','gas','backup'].forEach(t=>{ document.getElementById('tab-'+t).style.display=t===name?'block':'none'; });
+  document.querySelectorAll('.tab').forEach((el,i)=>{ el.classList.toggle('active',['entry','tracker','buckets','insights','gas','backup'][i]===name); });
+  if(name==='tracker'){ renderTable(); updateTotals(); }
+  if(name==='buckets') renderBuckets();
+  if(name==='insights') renderInsights();
+  if(name==='gas') renderGasTab();
+  if(name==='backup') updateStorageInfo();
+}
+
+// ── AI CALL WRAPPER — handles CORS ──
+async function callAI(body){
+  // Try direct call first
+  try{
+    const r=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body),
+      signal:AbortSignal.timeout(30000)
+    });
+    if(r.ok) return r;
+    throw new Error('Direct call failed: '+r.status);
+  }catch(e1){
+    // Try via CORS proxy
+    try{
+      const r=await fetch('https://corsproxy.io/?url='+encodeURIComponent('https://api.anthropic.com/v1/messages'),{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(body),
+        signal:AbortSignal.timeout(30000)
+      });
+      if(r.ok) return r;
+      throw new Error('Proxy call failed: '+r.status);
+    }catch(e2){
+      throw new Error('All API routes failed: '+e2.message);
+    }
+  }
+}
+
+// ── VOICE — Dual approach: MediaRecorder primary, SpeechRecognition fallback ──
+let mediaRecorder=null, audioChunks=[], recordingIsCorrection=false;
+
+function toggleMic(){
+  if(listening){ stopRecording(); return; }
+  startRecording(false);
+}
+function toggleCorrection(){
+  const btn=document.getElementById('correctBtn');
+  if(listening){ stopRecording(); correcting=false; btn.classList.remove('active'); btn.textContent='🎙 Speak a Correction'; return; }
+  correcting=true; btn.classList.add('active'); btn.textContent='⏹ Stop — Process Correction';
+  startRecording(true);
+}
+
+async function startRecording(isCorrectionMode){
+  try{
+    recordingIsCorrection=isCorrectionMode;
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+    audioChunks=[];
+    const mimeType=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':
+                   MediaRecorder.isTypeSupported('audio/webm')?'audio/webm':
+                   MediaRecorder.isTypeSupported('audio/mp4')?'audio/mp4':'';
+    mediaRecorder=mimeType?new MediaRecorder(stream,{mimeType}):new MediaRecorder(stream);
+    mediaRecorder.ondataavailable=(e)=>{ if(e.data&&e.data.size>0) audioChunks.push(e.data); };
+    mediaRecorder.onstop=async()=>{
+      stream.getTracks().forEach(t=>t.stop());
+      if(audioChunks.length>0) await processAudioRecording(audioChunks, mediaRecorder.mimeType||'audio/webm', recordingIsCorrection);
+      else{ resetMicBtn(); showStatus('No audio recorded. Please try again.','s-err'); }
+    };
+    mediaRecorder.start(100);
+    listening=true;
+    const b=document.getElementById('micBtn');
+    b.textContent='⏹ Tap to Stop Speaking'; b.className='mic-btn listening';
+    const va=document.getElementById('voiceArea'); va.style.display='block'; va.className='voice-area on';
+    va.textContent='🎙 Listening… speak your deal, then tap Stop';
+    document.getElementById('fallbackVoiceRow').style.display='none';
+  }catch(err){
+    showStatus('Microphone error: '+err.message+'. Please allow microphone in Chrome settings and try again.','s-err');
+    resetMicBtn();
+  }
+}
+
+function stopRecording(){
+  listening=false;
+  if(mediaRecorder&&mediaRecorder.state==='recording'){
+    const b=document.getElementById('micBtn'); b.textContent='⏳ Processing…'; b.className='mic-btn processing';
+    document.getElementById('voiceArea').textContent='⏳ Reading your deal…';
+    mediaRecorder.stop();
+  }
+}
+
+function resetMicBtn(){ listening=false; const b=document.getElementById('micBtn'); b.textContent='🎙 Tap to Speak Your Deal'; b.className='mic-btn'; }
+
+async function processAudioRecording(chunks, mimeType, isCorrectionMode){
+  try{
+    const blob=new Blob(chunks,{type:mimeType});
+    const base64Audio=await blobToBase64(blob);
+    const sources='Junk Car Lady, Lady Buyer, Copart, Other';
+    const cv=isCorrectionMode?getCurrentFormValues():null;
+    const textPrompt=isCorrectionMode
+      ?`Transcribe the audio then update this car deal form. Current values: ${JSON.stringify(cv)}. Apply ONLY corrections mentioned. Keep everything else same. Return ONLY valid JSON no markdown: {"transcription":"","car":"","vin":"","leadSource":"","city":"","carCost":null,"checkAmount":null,"miles":null,"runnerFee":null,"bills":null,"buckets":null,"refName":"","refFee":null,"date":"","notes":""}. Cities: Raleigh/Wake Forest/Cary/Garner/Knightdale/Clayton/Durham/Outside Area. Lead sources: ${sources}. date YYYY-MM-DD.`
+      :`Transcribe this audio and extract car deal info. Return ONLY valid JSON no markdown: {"transcription":"exact words spoken","car":"make model","vin":"last 6 or empty","leadSource":"from: ${sources} or empty","city":"from: Raleigh/Wake Forest/Cary/Garner/Knightdale/Clayton/Durham/Outside Area or empty","carCost":null,"checkAmount":null,"miles":null,"runnerFee":null,"bills":null,"buckets":null,"refName":"","refFee":null,"date":"YYYY-MM-DD or empty","notes":""}. Convert spoken numbers to digits. bills=allocated to bills. buckets=allocated to buckets.`;
+    const res=await callAI({model:'claude-sonnet-4-20250514',max_tokens:1500,
+        messages:[{role:'user',content:[
+          {type:'text',text:textPrompt},
+          {type:'document',source:{type:'base64',media_type:mimeType.split(';')[0],data:base64Audio}}
+        ]}]
+      });
+    const data=await res.json();
+    if(data.error) throw new Error(data.error.message||'API error');
+    const raw=(data.content||[]).map(c=>c.text||'').join('');
+    const p=JSON.parse(raw.replace(/```json|```/g,'').trim());
+    if(p.transcription){ const va=document.getElementById('voiceArea'); va.style.display='block'; va.className='voice-area'; va.textContent='💬 Heard: "'+p.transcription+'"'; }
+    fillForm(p); resetMicBtn();
+    document.getElementById('correctionRow').classList.add('show');
+    showStatus(isCorrectionMode?'✅ Correction applied!':'✅ Deal filled from voice! Review and tap Save.','s-ok');
+  }catch(err){
+    resetMicBtn();
+    document.getElementById('voiceArea').style.display='none';
+    // Show fallback option
+    document.getElementById('fallbackVoiceRow').style.display='flex';
+    showStatus('Voice processing failed ('+err.message+'). Try the browser method below, or fill in manually.','s-err');
+  }
+}
+
+function blobToBase64(blob){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(blob); }); }
+
+// Fallback: browser SpeechRecognition API
+function startBrowserSpeech(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ showStatus('Browser speech not available. Please fill in manually.','s-err'); return; }
+  const r=new SR(); r.continuous=false; r.interimResults=true; r.lang='en-US';
+  let final='';
+  document.getElementById('fallbackBtn').textContent='⏹ Listening… tap to stop';
+  document.getElementById('voiceArea').style.display='block';
+  r.onresult=(e)=>{ let interim=''; for(let i=e.resultIndex;i<e.results.length;i++){ if(e.results[i].isFinal) final+=e.results[i][0].transcript+' '; else interim=e.results[i][0].transcript; } document.getElementById('voiceArea').textContent=final+interim; };
+  r.onend=()=>{
+    document.getElementById('fallbackBtn').textContent='🎙 Try Browser Method';
+    if(final.trim()) processTextVoice(final.trim(), recordingIsCorrection);
+    else showStatus('No speech detected. Try again or fill manually.','s-err');
+  };
+  r.onerror=(e)=>{ document.getElementById('fallbackBtn').textContent='🎙 Try Browser Method'; showStatus('Browser mic error: '+e.error,'s-err'); };
+  r.start();
+}
+
+async function processTextVoice(text, isCorrectionMode){
+  const cv=isCorrectionMode?getCurrentFormValues():null;
+  const sources='Junk Car Lady, Lady Buyer, Copart, Other';
+  const prompt=isCorrectionMode
+    ?`Updating car deal form. Current: ${JSON.stringify(cv)}. Correction: "${text}". Apply ONLY what user mentioned. Return ONLY valid JSON no markdown: {"car":"","vin":"","leadSource":"","city":"","carCost":null,"checkAmount":null,"miles":null,"runnerFee":null,"bills":null,"buckets":null,"refName":"","refFee":null,"date":"","notes":""}. Cities: Raleigh/Wake Forest/Cary/Garner/Knightdale/Clayton/Durham/Outside Area. Lead sources: ${sources}. date YYYY-MM-DD.`
+    :`Extract car deal info from: "${text}". Return ONLY valid JSON: {"car":"","vin":"","leadSource":"","city":"","carCost":null,"checkAmount":null,"miles":null,"runnerFee":null,"bills":null,"buckets":null,"refName":"","refFee":null,"date":"","notes":""}. Cities: Raleigh/Wake Forest/Cary/Garner/Knightdale/Clayton/Durham/Outside Area. Lead sources: ${sources}. Convert spoken numbers to digits. date YYYY-MM-DD.`;
+  try{
+    const res=await callAI({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]});
+    const data=await res.json();
+    const p=JSON.parse((data.content||[]).map(c=>c.text||'').join('').replace(/```json|```/g,'').trim());
+    fillForm(p); document.getElementById('correctionRow').classList.add('show');
+    showStatus(isCorrectionMode?'✅ Correction applied!':'✅ Fields filled! Review and tap Save.','s-ok');
+  }catch(err){ showStatus('Could not process. Fill in manually.','s-err'); }
+}
+
+function getCurrentFormValues(){ return {car:document.getElementById('f_car').value,vin:document.getElementById('f_vin').value,leadSource:document.getElementById('f_source').value,city:document.getElementById('f_city').value,carCost:document.getElementById('f_cost').value,checkAmount:document.getElementById('f_check').value,miles:document.getElementById('f_miles').value,runnerFee:document.getElementById('f_runner_out').value,bills:document.getElementById('f_bills').value,buckets:document.getElementById('f_buckets').value,refName:document.getElementById('f_ref_name').value,refFee:document.getElementById('f_ref_fee').value,date:document.getElementById('f_date').value,notes:document.getElementById('f_notes').value}; }
+
+function fillForm(p){
+  if(p.car) document.getElementById('f_car').value=p.car;
+  if(p.vin) document.getElementById('f_vin').value=p.vin.toUpperCase();
+  if(p.leadSource) document.getElementById('f_source').value=p.leadSource;
+  if(p.city){ document.getElementById('f_city').value=p.city; cityChanged(); }
+  if(p.carCost!=null) document.getElementById('f_cost').value=p.carCost;
+  if(p.checkAmount!=null) document.getElementById('f_check').value=p.checkAmount;
+  if(p.miles!=null) document.getElementById('f_miles').value=p.miles;
+  if(p.runnerFee!=null) document.getElementById('f_runner_out').value=p.runnerFee;
+  if(p.bills!=null) document.getElementById('f_bills').value=p.bills;
+  if(p.buckets!=null){ document.getElementById('f_buckets').value=p.buckets; showBucketPreview(); }
+  if(p.refName) document.getElementById('f_ref_name').value=p.refName;
+  if(p.refFee!=null) document.getElementById('f_ref_fee').value=p.refFee;
+  if(p.date) document.getElementById('f_date').value=p.date;
+  if(p.notes) document.getElementById('f_notes').value=p.notes;
+  recalc();
+}
+
+// ── CITY / VIN ──
+function cityChanged(){ const city=document.getElementById('f_city').value,out=city==='Outside Area'; document.getElementById('milesRow').style.display=out?'block':'none'; document.getElementById('runnerRow').style.display=out?'block':'none'; recalc(); }
+function editCityChanged(){ const city=document.getElementById('e_city').value,out=city==='Outside Area'; document.getElementById('e_milesRow').style.display=out?'block':'none'; document.getElementById('e_runnerRow').style.display=out?'block':'none'; }
+function vinCheck(){ const v=document.getElementById('f_vin').value,hint=document.getElementById('vinHint'),fi=document.getElementById('f_vin').closest('.fi'); if(v.length>0&&v.length<6){ hint.classList.add('show'); fi.classList.add('err-field'); } else{ hint.classList.remove('show'); fi.classList.remove('err-field'); } }
+
+// ── FORMAT ──
+function fmt(n){ return '$'+(Math.round(n||0)).toLocaleString('en-US'); }
+function fmtD(n){ return '$'+(n||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:2}); }
+
+// ── RECALC ──
+function recalc(){
+  const city=document.getElementById('f_city').value,carCost=parseFloat(document.getElementById('f_cost').value)||0,checkAmt=parseFloat(document.getElementById('f_check').value)||0,refFee=parseFloat(document.getElementById('f_ref_fee').value)||0;
+  let runner=0,gas=0;
+  if(city==='Outside Area'){ const miles=parseFloat(document.getElementById('f_miles').value)||0; gas=Math.round(miles*MILEAGE_RATE); runner=parseFloat(document.getElementById('f_runner_out').value)||0; }
+  else if(CITIES[city]){ runner=CITIES[city].runner; gas=CITIES[city].gas; }
+  const totalExp=carCost+runner+gas+refFee,profit=checkAmt-totalExp;
+  document.getElementById('c_cost').textContent=fmt(carCost);
+  document.getElementById('c_runner').textContent=fmt(runner);
+  document.getElementById('c_gas').textContent=fmt(gas);
+  document.getElementById('c_ref').textContent=fmt(refFee);
+  document.getElementById('c_exp').textContent=fmt(totalExp);
+  document.getElementById('c_check').textContent=fmt(checkAmt);
+  document.getElementById('c_profit').textContent=fmt(profit);
+  document.getElementById('c_profit').style.color=profit>0?'var(--green)':profit<0?'var(--red)':'var(--muted)';
+  if(city) document.getElementById('calcBox').style.display='block';
+}
+
+// ── BILLS + BUCKETS VALIDATION ──
+function checkBillsBuckets(){
+  const profit=parseFloat(document.getElementById('c_profit').textContent.replace(/[$,]/g,''))||0;
+  const bills=parseFloat(document.getElementById('f_bills').value)||0;
+  const buckets=parseFloat(document.getElementById('f_buckets').value)||0;
+  const total=bills+buckets;
+  const warn=document.getElementById('billsBucketsWarning');
+  const btn=document.getElementById('saveDealBtn');
+  if(total>profit && profit>0){
+    warn.style.display='block';
+    warn.textContent='⚠️ Bills ($'+bills+') + Buckets ($'+buckets+') = $'+total+' which exceeds your Net Profit of $'+profit+'. Please adjust before saving.';
+    btn.disabled=true; btn.style.opacity='0.4';
+  } else {
+    warn.style.display='none';
+    btn.disabled=false; btn.style.opacity='1';
+  }
+}
+
+// ── BUCKET SPLIT — rounded whole dollars that sum exactly ──
+function splitBucket(amount){
+  const active=envelopes.filter(e=>!(e.goal>0&&e.balance>=e.goal)&&e.pct>0);
+  const totalPct=active.reduce((s,e)=>s+e.pct,0);
+  if(!totalPct) return [];
+  // Calculate raw shares
+  let shares=active.map(e=>({ id:e.id, name:e.name, pct:e.pct, raw:amount*(e.pct/totalPct) }));
+  // Floor all
+  shares.forEach(s=>{ s.share=Math.floor(s.raw); });
+  // Distribute remainder cents to largest remainders
+  let remainder=amount-shares.reduce((s,x)=>s+x.share,0);
+  shares.sort((a,b)=>(b.raw-b.share)-(a.raw-a.share));
+  for(let i=0;i<remainder;i++) shares[i%shares.length].share+=1;
+  return shares.filter(s=>s.share>0);
+}
+
+function showBucketPreview(){
+  const amount=Math.round(parseFloat(document.getElementById('f_buckets').value)||0);
+  const preview=document.getElementById('bucketPreview');
+  if(!amount){ preview.style.display='none'; return; }
+  const splits=splitBucket(amount);
+  const total=splits.reduce((s,x)=>s+x.share,0);
+  document.getElementById('bucketPreviewRows').innerHTML=splits.map(s=>`<div class="bp-row"><span class="bp-label">${s.name} (${s.pct}%)</span><span class="bp-val">${fmt(s.share)}</span></div>`).join('')+`<div class="bp-row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)"><span class="bp-label" style="font-weight:600">Total</span><span class="bp-val">${fmt(total)}</span></div>`;
+  preview.style.display='block';
+}
+
+// ── ADD DEAL ──
+async function addDeal(){
+  const city=document.getElementById('f_city').value;
+  if(!city){ showStatus('Please select a city.','s-err'); return; }
+  const vin=document.getElementById('f_vin').value;
+  if(vin.length>0&&vin.length<6){ showStatus('VIN must be exactly 6 characters or leave blank.','s-err'); return; }
+  const btn=document.getElementById('saveDealBtn'); btn.disabled=true; btn.textContent='Saving…';
+  const carCost=parseFloat(document.getElementById('f_cost').value)||0,checkAmt=parseFloat(document.getElementById('f_check').value)||0,refFee=parseFloat(document.getElementById('f_ref_fee').value)||0;
+  let runner=0,gas=0,miles=0;
+  if(city==='Outside Area'){ miles=parseFloat(document.getElementById('f_miles').value)||0; gas=Math.round(miles*MILEAGE_RATE); runner=parseFloat(document.getElementById('f_runner_out').value)||0; }
+  else if(CITIES[city]){ runner=CITIES[city].runner; gas=CITIES[city].gas; }
+  const totalExp=carCost+runner+gas+refFee;
+  const bucketAmt=Math.round(parseFloat(document.getElementById('f_buckets').value)||0);
+  const dealDate=document.getElementById('f_date').value||new Date().toISOString().split('T')[0];
+  const dealCar=document.getElementById('f_car').value||'Unknown';
+
+  const dealObj={
+    date:dealDate,car:dealCar,vin,city,
+    lead_source:document.getElementById('f_source').value||'Other',
+    car_cost:carCost,runner,gas,miles,ref_fee:refFee,
+    ref_name:document.getElementById('f_ref_name').value,
+    total_exp:totalExp,check_amt:checkAmt,profit:checkAmt-totalExp,
+    bills:parseFloat(document.getElementById('f_bills').value)||0,
+    buckets:bucketAmt,notes:document.getElementById('f_notes').value
+  };
+
+  try{
+    const {data:saved,error}=await sb.from('deals').insert([dealObj]).select().single();
+    if(error) throw error;
+    deals.unshift(saved);
+
+    // Distribute bucket
+    if(bucketAmt>0){
+      const splits=splitBucket(bucketAmt);
+      for(const s of splits){
+        const env=envelopes.find(e=>e.id===s.id); if(!env) continue;
+        env.balance=Math.round(env.balance+s.share);
+        if(env.goal>0&&env.balance>env.goal) env.balance=env.goal;
+        await sb.from('envelope_balances').upsert({id:env.id,name:env.name,pct:env.pct,goal:env.goal,grp:env.grp,realloc:env.realloc,balance:env.balance});
+        const histItem={envelope_id:env.id,date:dealDate,amount:s.share,source:'Deal: '+dealCar+' (ID:'+saved.id+')',type:'deal'};
+        const {data:savedHist}=await sb.from('envelope_history').insert([histItem]).select().single();
+        if(savedHist) envHistory.unshift(savedHist);
+      }
+    }
+
+    resetForm();
+    showStatus('✅ Deal saved! Net profit: '+fmt(checkAmt-totalExp),'s-ok');
+    updateStorageInfo();
+  }catch(err){
+    showStatus('Error saving deal: '+err.message,'s-err');
+  }finally{
+    btn.disabled=false; btn.textContent='✅ Save Deal to Tracker';
+  }
+}
+
+function resetForm(){
+  ['f_car','f_vin','f_cost','f_check','f_bills','f_buckets','f_ref_name','f_ref_fee','f_notes','f_miles','f_runner_out'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  document.getElementById('f_city').value='';
+  document.getElementById('f_source').value='';
+  document.getElementById('f_date').value=new Date().toISOString().split('T')[0];
+  document.getElementById('milesRow').style.display='none';
+  document.getElementById('runnerRow').style.display='none';
+  document.getElementById('calcBox').style.display='none';
+  document.getElementById('bucketPreview').style.display='none';
+}
+function resetVoice(){ 
+  const va=document.getElementById('voiceArea'); va.style.display='none'; va.className='voice-area'; va.textContent='';
+  document.getElementById('correctionRow').classList.remove('show'); 
+  document.getElementById('fallbackVoiceRow').style.display='none';
+  resetMicBtn(); 
+}
+
+// ── TABLE ──
+function getFiltered(){
+  const search=(document.getElementById('searchInput')?.value||'').toLowerCase(),city=document.getElementById('filterCity')?.value||'',source=document.getElementById('filterSource')?.value||'',from=document.getElementById('filterFrom')?.value||'',to=document.getElementById('filterTo')?.value||'';
+  return deals.filter(d=>{ const hay=[d.car,d.vin,d.city,d.notes,d.ref_name,d.date,d.lead_source].join(' ').toLowerCase(); if(search&&!hay.includes(search)) return false; if(city&&d.city!==city) return false; if(source&&d.lead_source!==source) return false; if(from&&d.date<from) return false; if(to&&d.date>to) return false; return true; });
+}
+function hl(str,search){ if(!search||!str) return str||'—'; const idx=str.toLowerCase().indexOf(search); if(idx<0) return str; return str.slice(0,idx)+'<mark style="background:rgba(0,229,160,0.25);border-radius:2px">'+str.slice(idx,idx+search.length)+'</mark>'+str.slice(idx+search.length); }
+
+function renderTable(){
+  const filtered=getFiltered(),search=(document.getElementById('searchInput')?.value||'').toLowerCase(),tbody=document.getElementById('tbody');
+  if(!filtered.length){ tbody.innerHTML='<tr><td colspan="17"><div class="empty-row">No deals match your search or filters.</div></td></tr>'; updateTotals(filtered); return; }
+  tbody.innerHTML=filtered.map((d,i)=>`
+    <tr class="${search&&[d.car,d.vin,d.city,d.ref_name,d.lead_source].join(' ').toLowerCase().includes(search)?'hl':''}">
+      <td style="color:var(--muted)">${i+1}</td>
+      <td>${d.date||'—'}</td>
+      <td>${hl(d.car,search)}</td>
+      <td><span class="badge">${hl(d.vin||'—',search)}</span></td>
+      <td><span class="badge-src">${hl(d.lead_source||'—',search)}</span></td>
+      <td>${hl(d.city,search)}</td>
+      <td>${fmt(d.car_cost)}</td>
+      <td>${fmt(d.runner)}</td>
+      <td>${fmt(d.gas)}</td>
+      <td>${d.ref_name?hl(d.ref_name,search)+' '+fmt(d.ref_fee):'—'}</td>
+      <td class="orange">${fmt(d.total_exp)}</td>
+      <td>${fmt(d.check_amt)}</td>
+      <td class="${d.profit>0?'green':d.profit<0?'red-v':''}">${fmt(d.profit)}</td>
+      <td>${fmt(d.bills)}</td>
+      <td>${fmt(d.buckets)}</td>
+      <td style="color:var(--muted);font-size:0.72rem;max-width:90px;overflow:hidden;text-overflow:ellipsis">${d.notes||'—'}</td>
+      <td style="white-space:nowrap">
+        <button class="act-btn" onclick="openEdit(${d.id})">✏️ Edit</button>
+        <button class="act-btn del" onclick="deleteDeal(${d.id})">🗑 Delete</button>
+      </td>
+    </tr>`).join('');
+  updateTotals(filtered);
+}
+
+function updateTotals(filtered){
+  const list=filtered||getFiltered(),n=list.length,rev=list.reduce((s,d)=>s+(d.check_amt||0),0),profit=list.reduce((s,d)=>s+(d.profit||0),0);
+  document.getElementById('t_deals').textContent=n;
+  document.getElementById('t_avg').textContent=n?fmt(profit/n):'$0';
+  document.getElementById('t_rev').textContent=fmt(rev);
+  document.getElementById('t_profit').textContent=fmt(profit);
+  document.getElementById('t_profit').style.color=profit>=0?'var(--green)':'var(--red)';
+  document.getElementById('t_car').textContent=fmt(list.reduce((s,d)=>s+(d.car_cost||0),0));
+  document.getElementById('t_gas').textContent=fmt(list.reduce((s,d)=>s+(d.gas||0),0));
+  document.getElementById('t_runner').textContent=fmt(list.reduce((s,d)=>s+(d.runner||0),0));
+  document.getElementById('t_ref').textContent=fmt(list.reduce((s,d)=>s+(d.ref_fee||0),0));
+  document.getElementById('t_exp').textContent=fmt(list.reduce((s,d)=>s+(d.total_exp||0),0));
+  document.getElementById('t_bills').textContent=fmt(list.reduce((s,d)=>s+(d.bills||0),0));
+  document.getElementById('t_buckets').textContent=fmt(list.reduce((s,d)=>s+(d.buckets||0),0));
+}
+
+function clearFilters(){ document.getElementById('searchInput').value=''; document.getElementById('filterCity').value=''; document.getElementById('filterSource').value=''; document.getElementById('filterFrom').value=''; document.getElementById('filterTo').value=''; renderTable(); }
+
+async function deleteDeal(id){
+  if(!confirm('Delete this deal? This will also remove its bucket contributions from history.')) return;
+  try{
+    // Find deal
+    const deal=deals.find(d=>d.id===id); if(!deal) return;
+    // Remove bucket history entries for this deal
+    const dealTag='ID:'+id+')';
+    const toRemove=envHistory.filter(h=>h.source&&h.source.includes(dealTag));
+    for(const h of toRemove){
+      await sb.from('envelope_history').delete().eq('id',h.id);
+      // Reverse balance
+      const env=envelopes.find(e=>e.id===h.envelope_id);
+      if(env){ env.balance=Math.max(0,Math.round(env.balance-h.amount)); await sb.from('envelope_balances').upsert({id:env.id,name:env.name,pct:env.pct,goal:env.goal,grp:env.grp,realloc:env.realloc,balance:env.balance}); }
+    }
+    envHistory=envHistory.filter(h=>!h.source||!h.source.includes(dealTag));
+    // Delete deal
+    await sb.from('deals').delete().eq('id',id);
+    deals=deals.filter(d=>d.id!==id);
+    renderTable(); updateTotals();
+    showStatus('Deal deleted and bucket history updated.','s-ok');
+  }catch(err){ showStatus('Error deleting: '+err.message,'s-err'); }
+}
+
+// ── EDIT DEAL ──
+function openEdit(id){
+  const d=deals.find(x=>x.id===id); if(!d) return; editingId=id;
+  document.getElementById('e_car').value=d.car||''; document.getElementById('e_vin').value=d.vin||''; document.getElementById('e_source').value=d.lead_source||'Other'; document.getElementById('e_city').value=d.city||''; document.getElementById('e_cost').value=d.car_cost||''; document.getElementById('e_check').value=d.check_amt||''; document.getElementById('e_bills').value=d.bills||''; document.getElementById('e_buckets').value=d.buckets||''; document.getElementById('e_ref_name').value=d.ref_name||''; document.getElementById('e_ref_fee').value=d.ref_fee||''; document.getElementById('e_date').value=d.date||''; document.getElementById('e_notes').value=d.notes||'';
+  editCityChanged(); if(d.city==='Outside Area'){ document.getElementById('e_miles').value=d.miles||''; document.getElementById('e_runner_out').value=d.runner||''; }
+  document.getElementById('editModal').classList.add('show');
+}
+function closeEdit(){ document.getElementById('editModal').classList.remove('show'); editingId=null; }
+async function saveEdit(){
+  const idx=deals.findIndex(d=>d.id===editingId); if(idx<0) return;
+  const city=document.getElementById('e_city').value,carCost=parseFloat(document.getElementById('e_cost').value)||0,checkAmt=parseFloat(document.getElementById('e_check').value)||0,refFee=parseFloat(document.getElementById('e_ref_fee').value)||0;
+  let runner=0,gas=0,miles=0;
+  if(city==='Outside Area'){ miles=parseFloat(document.getElementById('e_miles').value)||0; gas=Math.round(miles*MILEAGE_RATE); runner=parseFloat(document.getElementById('e_runner_out').value)||0; }
+  else if(CITIES[city]){ runner=CITIES[city].runner; gas=CITIES[city].gas; }
+  const totalExp=carCost+runner+gas+refFee;
+  const updated={car:document.getElementById('e_car').value||'Unknown',vin:document.getElementById('e_vin').value.toUpperCase(),lead_source:document.getElementById('e_source').value,city,car_cost:carCost,runner,gas,miles,ref_fee:refFee,ref_name:document.getElementById('e_ref_name').value,total_exp:totalExp,check_amt:checkAmt,profit:checkAmt-totalExp,bills:parseFloat(document.getElementById('e_bills').value)||0,buckets:parseFloat(document.getElementById('e_buckets').value)||0,date:document.getElementById('e_date').value,notes:document.getElementById('e_notes').value};
+  try{
+    await sb.from('deals').update(updated).eq('id',editingId);
+    deals[idx]={...deals[idx],...updated};
+    closeEdit(); renderTable();
+  }catch(err){ showStatus('Error saving: '+err.message,'s-err'); }
+}
+
+// ── BUCKETS ──
+function renderBuckets(){
+  const totalBal=envelopes.reduce((s,e)=>s+e.balance,0),totalGoal=envelopes.filter(e=>e.goal>0).reduce((s,e)=>s+e.goal,0),doneCount=envelopes.filter(e=>e.goal>0&&e.balance>=e.goal).length;
+  document.getElementById('bucketSummaryGrid').innerHTML=`
+    <div class="tc"><div class="tc-l">Total in Buckets</div><div class="tc-v" style="color:var(--purple)">${fmt(totalBal)}</div></div>
+    <div class="tc"><div class="tc-l">Total Goal</div><div class="tc-v" style="color:var(--orange)">${fmt(totalGoal)}</div></div>
+    <div class="tc"><div class="tc-l">Goals Done</div><div class="tc-v" style="color:var(--green)">${doneCount}</div></div>`;
+
+  document.getElementById('envelopesList').innerHTML=envelopes.map(env=>{
+    const isDone=env.goal>0&&env.balance>=env.goal;
+    const pctFill=env.goal>0?Math.min(100,(env.balance/env.goal*100)):null;
+    const hist=envHistory.filter(h=>h.envelope_id===env.id);
+    const histHTML=hist.length?hist.slice(0,20).map(h=>{
+      const btns=h.type==='direct'?`<div style="display:flex;gap:4px;margin-left:8px;"><button onclick="editDeposit('${env.id}',${h.id})" style="background:rgba(155,125,255,0.15);border:1px solid var(--purple);color:var(--purple);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">✏️</button><button onclick="deleteDeposit('${env.id}',${h.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">🗑</button></div>`:'';
+      return `<div class="history-item"><div><div>${h.source}</div><div class="h-source">${h.type==='deal'?'From Deal':'Direct Deposit'}</div></div><div style="text-align:right;display:flex;align-items:center;"><div><div class="h-amt">+${fmt(h.amount)}</div><div class="h-date">${h.date}</div></div>${btns}</div></div>`;
+    }).join(''):'<div style="color:var(--muted);font-size:0.78rem;padding:8px 0;font-style:italic">No history yet</div>';
+    return `<div class="envelope-card">
+      <div class="env-header">
+        <div><div class="env-name">${env.name}</div><div class="env-group">${env.grp}</div></div>
+        <span class="env-pct ${isDone?'done':''}">${isDone?'✅ Done':env.pct+'%'}</span>
+      </div>
+      ${pctFill!==null?`<div class="progress-bar"><div class="progress-fill ${isDone?'complete':''}" style="width:${pctFill}%"></div></div>`:''}
+      <div class="env-stats">
+        <div class="env-stat"><div class="env-stat-label">Balance</div><div class="env-stat-val" style="color:var(--purple)">${fmt(env.balance)}</div></div>
+        ${env.goal>0?`<div class="env-stat"><div class="env-stat-label">Goal</div><div class="env-stat-val">${fmt(env.goal)}</div></div><div class="env-stat"><div class="env-stat-label">Remaining</div><div class="env-stat-val" style="color:${isDone?'var(--green)':'var(--orange)'}">${isDone?'Done!':fmt(env.goal-env.balance)}</div></div>`:`<div class="env-stat"><div class="env-stat-label">Type</div><div class="env-stat-val" style="color:var(--muted);font-size:0.75rem">Ongoing</div></div>`}
+      </div>
+      <div class="env-actions">
+        <button class="env-btn env-btn-add" onclick="openDeposit('${env.id}')">+ Add Money</button>
+        <button class="env-btn env-btn-history" onclick="toggleHistory('hist_${env.id}')">📋 History</button>
+        <button class="env-btn env-btn-edit" onclick="openEnvEdit('${env.id}')">✏️ Edit</button>
+      </div>
+      <div class="history-list" id="hist_${env.id}">${histHTML}</div>
+    </div>`;
+  }).join('');
+
+  const totalPct=envelopes.reduce((s,e)=>s+e.pct,0);
+  document.getElementById('settingsList').innerHTML=
+    envelopes.map(env=>`<div class="settings-row"><div><div class="settings-label">${env.name}</div><div class="settings-sub">${env.grp}${env.goal>0?' · Goal: '+fmt(env.goal):''}${env.realloc?' · When done: '+env.realloc:''}</div></div><span class="settings-val">${env.pct}%</span></div>`).join('')
+    +`<div class="settings-row" style="border-top:2px solid var(--border);margin-top:4px;padding-top:10px"><div class="settings-label" style="font-weight:800">Total</div><span class="settings-val" style="color:${totalPct===100?'var(--green)':'var(--red)'}">${totalPct}% ${totalPct===100?'✅':'⚠ Should be 100%'}</span></div>`;
+}
+
+function toggleHistory(id){ document.getElementById(id).classList.toggle('open'); }
+
+// ── DIRECT DEPOSIT ──
+function openDeposit(envId){ depositEnvId=envId; const env=envelopes.find(e=>e.id===envId); document.getElementById('depositEnvName').textContent='Adding directly to: '+env.name; document.getElementById('dep_amount').value=''; document.getElementById('dep_note').value=''; document.getElementById('dep_date').value=new Date().toISOString().split('T')[0]; document.getElementById('depositModal').classList.add('show'); }
+function closeDeposit(){ document.getElementById('depositModal').classList.remove('show'); depositEnvId=null; }
+async function saveDeposit(){
+  const env=envelopes.find(e=>e.id===depositEnvId); if(!env) return;
+  const amount=Math.round(parseFloat(document.getElementById('dep_amount').value)||0);
+  if(!amount){ alert('Please enter an amount.'); return; }
+  const note=document.getElementById('dep_note').value||'Direct deposit',date=document.getElementById('dep_date').value||new Date().toISOString().split('T')[0];
+  const modal=document.getElementById('depositModal');
+  const editId=modal.dataset.editId?parseInt(modal.dataset.editId):null;
+  try{
+    if(editId){
+      // Editing existing deposit
+      const oldHist=envHistory.find(h=>h.id===editId);
+      const oldAmount=oldHist?oldHist.amount:0;
+      // Reverse old amount and apply new
+      env.balance=Math.max(0,Math.round(env.balance-oldAmount+amount));
+      if(env.goal>0&&env.balance>env.goal) env.balance=env.goal;
+      await sb.from('envelope_balances').upsert({id:env.id,name:env.name,pct:env.pct,goal:env.goal,grp:env.grp,realloc:env.realloc,balance:env.balance});
+      await sb.from('envelope_history').update({amount,source:note,date}).eq('id',editId);
+      const idx=envHistory.findIndex(h=>h.id===editId);
+      if(idx>=0) envHistory[idx]={...envHistory[idx],amount,source:note,date};
+      modal.dataset.editId=''; modal.dataset.editEnvId='';
+    } else {
+      // New deposit
+      env.balance=Math.round(env.balance+amount);
+      if(env.goal>0&&env.balance>env.goal) env.balance=env.goal;
+      await sb.from('envelope_balances').upsert({id:env.id,name:env.name,pct:env.pct,goal:env.goal,grp:env.grp,realloc:env.realloc,balance:env.balance});
+      const histItem={envelope_id:env.id,date,amount,source:note,type:'direct'};
+      const {data:savedHist}=await sb.from('envelope_history').insert([histItem]).select().single();
+      if(savedHist) envHistory.unshift(savedHist);
+    }
+    closeDeposit(); renderBuckets();
+  }catch(err){ showStatus('Error saving deposit: '+err.message,'s-err'); }
+}
+
+// ── EDIT/DELETE DIRECT DEPOSITS ──
+function editDeposit(envId, histId){
+  const env=envelopes.find(e=>e.id===envId); if(!env) return;
+  const h=envHistory.find(x=>x.id===histId); if(!h) return;
+  depositEnvId=envId;
+  document.getElementById('depositEnvName').textContent='Editing deposit in: '+env.name;
+  document.getElementById('dep_amount').value=h.amount;
+  document.getElementById('dep_note').value=h.source;
+  document.getElementById('dep_date').value=h.date;
+  // Store editing ID
+  document.getElementById('depositModal').dataset.editId=histId;
+  document.getElementById('depositModal').dataset.editEnvId=envId;
+  document.getElementById('depositModal').classList.add('show');
+}
+
+async function deleteDeposit(envId, histId){
+  if(!confirm('Delete this deposit? The amount will be reversed from the envelope balance.')) return;
+  const env=envelopes.find(e=>e.id===envId); if(!env) return;
+  const h=envHistory.find(x=>x.id===histId); if(!h) return;
+  try{
+    await sb.from('envelope_history').delete().eq('id',histId);
+    env.balance=Math.max(0,Math.round(env.balance-h.amount));
+    await sb.from('envelope_balances').upsert({id:env.id,name:env.name,pct:env.pct,goal:env.goal,grp:env.grp,realloc:env.realloc,balance:env.balance});
+    envHistory=envHistory.filter(x=>x.id!==histId);
+    renderBuckets();
+    showStatus('✅ Deposit deleted and balance updated.','s-ok');
+  }catch(err){ showStatus('Error deleting deposit: '+err.message,'s-err'); }
+}
+
+// ── EDIT ENVELOPE ──
+function openAddEnvelope(){ editingEnvId=null; document.getElementById('envEditTitle').textContent='+ Add New Envelope'; ['env_name','env_pct','env_goal','env_group','env_realloc'].forEach(id=>document.getElementById(id).value=''); document.getElementById('envDeleteBtn').style.display='none'; document.getElementById('envEditModal').classList.add('show'); }
+function openEnvEdit(id){ editingEnvId=id; const env=envelopes.find(e=>e.id===id); if(!env) return; document.getElementById('envEditTitle').textContent='✏️ Edit — '+env.name; document.getElementById('env_name').value=env.name; document.getElementById('env_pct').value=env.pct; document.getElementById('env_goal').value=env.goal||''; document.getElementById('env_group').value=env.grp||''; document.getElementById('env_realloc').value=env.realloc||''; document.getElementById('envDeleteBtn').style.display='block'; document.getElementById('envEditModal').classList.add('show'); }
+function closeEnvEdit(){ document.getElementById('envEditModal').classList.remove('show'); editingEnvId=null; }
+async function saveEnvelope(){
+  const name=document.getElementById('env_name').value.trim(),pct=parseFloat(document.getElementById('env_pct').value)||0,goal=parseFloat(document.getElementById('env_goal').value)||0,grp=document.getElementById('env_group').value.trim()||'Custom',realloc=document.getElementById('env_realloc').value.trim();
+  if(!name){ alert('Please enter a name.'); return; }
+  try{
+    if(editingEnvId){ const env=envelopes.find(e=>e.id===editingEnvId); if(!env) return; env.name=name; env.pct=pct; env.goal=goal; env.grp=grp; env.realloc=realloc; await sb.from('envelope_balances').upsert({id:env.id,name,pct,goal,grp,realloc,balance:env.balance}); }
+    else{ const newEnv={id:'e'+Date.now(),name,pct,goal,grp,realloc,balance:0}; envelopes.push(newEnv); await sb.from('envelope_balances').insert([{id:newEnv.id,name,pct,goal,grp,realloc,balance:0}]); }
+    closeEnvEdit(); renderBuckets();
+  }catch(err){ showStatus('Error saving envelope: '+err.message,'s-err'); }
+}
+async function deleteEnvelope(){
+  if(!confirm('Delete this envelope? Its balance and history will be lost.')) return;
+  try{
+    await sb.from('envelope_history').delete().eq('envelope_id',editingEnvId);
+    await sb.from('envelope_balances').delete().eq('id',editingEnvId);
+    envelopes=envelopes.filter(e=>e.id!==editingEnvId);
+    envHistory=envHistory.filter(h=>h.envelope_id!==editingEnvId);
+    closeEnvEdit(); renderBuckets();
+  }catch(err){ showStatus('Error: '+err.message,'s-err'); }
+}
+
+// ── INSIGHTS ──
+function renderInsights(){
+  // City
+  const cityMap={};
+  deals.forEach(d=>{ if(!cityMap[d.city]) cityMap[d.city]={deals:0,profit:0,revenue:0}; cityMap[d.city].deals++; cityMap[d.city].profit+=(d.profit||0); cityMap[d.city].revenue+=(d.check_amt||0); });
+  const cities=Object.keys(cityMap).sort((a,b)=>cityMap[b].profit-cityMap[a].profit);
+  document.getElementById('cityGrid').innerHTML=cities.length?cities.map(c=>`<div class="insight-card"><div class="insight-name">📍 ${c}</div><div class="insight-stat"><span>Deals</span><span>${cityMap[c].deals}</span></div><div class="insight-stat"><span>Revenue</span><span style="color:var(--orange)">${fmt(cityMap[c].revenue)}</span></div><div class="insight-stat"><span>Profit</span><span style="color:${cityMap[c].profit>=0?'var(--green)':'var(--red)'}">${fmt(cityMap[c].profit)}</span></div></div>`).join(''):'<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-style:italic;font-size:0.84rem;">No deals yet</div>';
+
+  // Lead Source
+  const srcMap={};
+  deals.forEach(d=>{ const src=d.lead_source||'Other'; if(!srcMap[src]) srcMap[src]={deals:0,profit:0,revenue:0}; srcMap[src].deals++; srcMap[src].profit+=(d.profit||0); srcMap[src].revenue+=(d.check_amt||0); });
+  const sources=Object.keys(srcMap).sort((a,b)=>srcMap[b].profit-srcMap[a].profit);
+  document.getElementById('sourceGrid').innerHTML=sources.length?sources.map(s=>`<div class="insight-card"><div class="insight-name">📡 ${s}</div><div class="insight-stat"><span>Deals</span><span>${srcMap[s].deals}</span></div><div class="insight-stat"><span>Revenue</span><span style="color:var(--orange)">${fmt(srcMap[s].revenue)}</span></div><div class="insight-stat"><span>Profit</span><span style="color:${srcMap[s].profit>=0?'var(--green)':'var(--red)'}">${fmt(srcMap[s].profit)}</span></div></div>`).join(''):'<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-style:italic;font-size:0.84rem;">No deals yet</div>';
+
+  // Monthly
+  const monthMap={};
+  deals.forEach(d=>{ if(!d.date) return; const key=d.date.slice(0,7); if(!monthMap[key]) monthMap[key]={deals:0,profit:0,revenue:0}; monthMap[key].deals++; monthMap[key].profit+=(d.profit||0); monthMap[key].revenue+=(d.check_amt||0); });
+  const months=Object.keys(monthMap).sort().reverse();
+  document.getElementById('monthList').innerHTML=months.length?months.map(m=>{ const[yr,mo]=m.split('-'),name=new Date(yr,mo-1,1).toLocaleString('en-US',{month:'long',year:'numeric'}); return `<div class="month-row"><div class="month-name">${name}</div><div class="month-stats"><span><strong>${monthMap[m].deals}</strong> deals</span><span>Rev: <strong style="color:var(--orange)">${fmt(monthMap[m].revenue)}</strong></span><span>Profit: <strong style="color:${monthMap[m].profit>=0?'var(--green)':'var(--red)'}">${fmt(monthMap[m].profit)}</strong></span></div></div>`; }).join(''):'<div style="text-align:center;padding:20px;color:var(--muted);font-style:italic;font-size:0.84rem;">No deals yet</div>';
+}
+
+// ── EXPORT ──
+function exportCSV(){
+  const filtered=getFiltered(); if(!filtered.length){ alert('No deals to export.'); return; }
+  const rows=[['#','Date','Car','VIN Last 6','Lead Source','City','Car Cost','Runner Fee','Gas','Referral Name','Referral Fee','Total Expenses','Check Amount','Net Profit','Allocated Bills','Allocated Buckets','Notes']];
+  filtered.forEach((d,i)=>rows.push([i+1,d.date,d.car,d.vin,d.lead_source,d.city,d.car_cost,d.runner,d.gas,d.ref_name||'',d.ref_fee,d.total_exp,d.check_amt,d.profit,d.bills,d.buckets,d.notes||'']));
+  const csv=rows.map(r=>r.map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a'); a.href='data:text/csv,'+encodeURIComponent(csv); a.download='deal-tracker-'+new Date().toISOString().slice(0,10)+'.csv'; a.click();
+}
+function exportBackup(){ const data=JSON.stringify({version:5,exported:new Date().toISOString(),deals,envelopes,envHistory},null,2); const a=document.createElement('a'); a.href='data:application/json,'+encodeURIComponent(data); a.download='deal-tracker-backup-'+new Date().toISOString().slice(0,10)+'.json'; a.click(); }
+function updateStorageInfo(){ document.getElementById('storageInfo').innerHTML=`<span style="color:var(--green);font-weight:600">☁️ ${deals.length} deals · ${envelopes.length} envelopes</span> &nbsp;·&nbsp; <span style="color:var(--muted)">Saved to Supabase cloud database. Works on any device. Data is permanent.</span>`; }
+// ── GAS & MAINTENANCE ──
+let gasExpenses=[];
+
+async function loadGasExpenses(){
+  try{
+    const {data,error}=await sb.from('gas_expenses').select('*').order('created_at',{ascending:false});
+    if(error) throw error;
+    gasExpenses=data||[];
+  }catch(err){ gasExpenses=[]; }
+}
+
+async function addGasExpense(){
+  const type=document.getElementById('gas_type').value;
+  const amount=Math.round(parseFloat(document.getElementById('gas_amount').value)||0);
+  const desc=document.getElementById('gas_desc').value||'Expense';
+  const date=document.getElementById('gas_date').value||new Date().toISOString().split('T')[0];
+  if(!amount){ showGasStatus('Please enter an amount.','s-err'); return; }
+  try{
+    const {data,error}=await sb.from('gas_expenses').insert([{type,amount,description:desc,date}]).select().single();
+    if(error) throw error;
+    gasExpenses.unshift(data);
+    document.getElementById('gas_amount').value='';
+    document.getElementById('gas_desc').value='';
+    renderGasTab();
+    showGasStatus('✅ Expense logged!','s-ok');
+  }catch(err){ showGasStatus('Error: '+err.message,'s-err'); }
+}
+
+async function deleteGasExpense(id){
+  if(!confirm('Delete this expense?')) return;
+  try{
+    await sb.from('gas_expenses').delete().eq('id',id);
+    gasExpenses=gasExpenses.filter(e=>e.id!==id);
+    renderGasTab();
+  }catch(err){ showGasStatus('Error: '+err.message,'s-err'); }
+}
+
+function renderGasTab(){
+  // Collected from deals
+  const collected=deals.reduce((s,d)=>s+(d.gas||0),0);
+  const gasTotal=gasExpenses.filter(e=>e.type==='gas').reduce((s,e)=>s+e.amount,0);
+  const repairTotal=gasExpenses.filter(e=>e.type==='repair').reduce((s,e)=>s+e.amount,0);
+  const spent=gasTotal+repairTotal;
+  const net=collected-spent;
+  document.getElementById('gas_collected').textContent=fmt(collected);
+  document.getElementById('gas_spent').textContent=fmt(spent);
+  document.getElementById('gas_net').textContent=(net>=0?'+':'')+fmt(net);
+  document.getElementById('gas_net').style.color=net>=0?'var(--green)':'var(--red)';
+  document.getElementById('gas_gas_total').textContent=fmt(gasTotal);
+  document.getElementById('gas_repair_total').textContent=fmt(repairTotal);
+  // Set today's date
+  if(!document.getElementById('gas_date').value) document.getElementById('gas_date').value=new Date().toISOString().split('T')[0];
+  // Render history
+  const list=document.getElementById('gasExpenseList');
+  if(!gasExpenses.length){ list.innerHTML='<div style="text-align:center;padding:20px;color:var(--muted);font-style:italic;font-size:0.82rem;">No expenses logged yet</div>'; return; }
+  list.innerHTML=gasExpenses.map(e=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);font-size:0.82rem;">
+      <div>
+        <div style="font-weight:600">${e.type==='gas'?'⛽':'🔧'} ${e.description}</div>
+        <div style="color:var(--muted);font-size:0.72rem;">${e.date}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="color:var(--red);font-weight:700;">-${fmt(e.amount)}</span>
+        <button onclick="deleteGasExpense(${e.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 8px;font-size:0.7rem;cursor:pointer;font-family:inherit;">🗑</button>
+      </div>
+    </div>`).join('');
+}
+
+function showGasStatus(msg,type){ const el=document.getElementById('gasStatusBox'); el.textContent=msg; el.className='status show '+type; setTimeout(()=>el.className='status',6000); }
+
+function showStatus(msg,type){ const el=document.getElementById('statusBox'); el.textContent=msg; el.className='status show '+type; setTimeout(()=>el.className='status',8000); }
+
+init();
+</script>
+</body>
+</html>
