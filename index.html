@@ -450,6 +450,12 @@ tr.hl{background:rgba(0,229,160,0.05);}
       <div class="bcard"><div class="icon">🖨</div><h3>Print / PDF</h3><p>Print your tracker or save as PDF using your browser.</p><button style="background:var(--surface);border:1px solid var(--border);color:var(--text)" onclick="showTab('tracker');setTimeout(()=>window.print(),300)">Print Tracker</button></div>
     </div>
     <div class="storage-info" id="storageInfo">Loading…</div>
+    <div style="margin-top:13px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px;">
+      <div style="font-family:'Syne',sans-serif;font-size:0.92rem;font-weight:800;margin-bottom:7px;color:var(--green);">🧾 Bucket Audit</div>
+      <p style="font-size:0.76rem;color:var(--muted);line-height:1.45;margin-bottom:10px;">Checks whether every deal's bucket amount was actually posted into envelope history, and whether envelope balances match their history totals.</p>
+      <button class="save-btn" style="font-size:0.86rem;padding:12px" onclick="runBucketAudit()">Run Bucket Audit</button>
+      <div id="bucketAuditResults" style="margin-top:12px;font-size:0.82rem;line-height:1.45;"></div>
+    </div>
   </div>
 </div>
 
@@ -887,15 +893,23 @@ async function addDeal(){
         const env=envelopes.find(e=>e.id===s.id); if(!env) continue;
         env.balance=Math.round(env.balance+s.share);
         if(env.goal>0&&env.balance>env.goal) env.balance=env.goal;
-        await sb.from('envelope_balances').upsert({id:env.id,name:env.name,pct:env.pct,goal:env.goal,grp:env.grp,realloc:env.realloc,balance:env.balance});
+        const {error:balErr}=await sb.from('envelope_balances').upsert({id:env.id,name:env.name,pct:env.pct,goal:env.goal,grp:env.grp,realloc:env.realloc,balance:env.balance});
+        if(balErr) throw new Error('Bucket balance failed for '+env.name+': '+balErr.message);
         const histItem={envelope_id:env.id,date:dealDate,amount:s.share,source:'Deal: '+dealCar+' (ID:'+saved.id+')',type:'deal'};
-        const {data:savedHist}=await sb.from('envelope_history').insert([histItem]).select().single();
-        if(savedHist) envHistory.unshift(savedHist);
+        const {data:savedHist,error:histErr}=await sb.from('envelope_history').insert([histItem]).select().single();
+        if(histErr) throw new Error('Bucket history failed for '+env.name+': '+histErr.message);
+        if(!savedHist) throw new Error('Bucket history did not confirm for '+env.name);
+        envHistory.unshift(savedHist);
       }
     }
 
+    const auditResult=auditDealBucketPosting(saved.id,bucketAmt);
     resetForm();
-    showStatus('✅ Deal saved! Net profit: '+fmt(checkAmt-totalExp),'s-ok');
+    if(auditResult.pass){
+      showStatus('✅ Deal saved! Net profit: '+fmt(checkAmt-totalExp)+' · Bucket audit PASS','s-ok');
+    } else {
+      showStatus('⚠️ Deal saved, but bucket audit FAILED for Deal '+saved.id+'. Bucket amount: '+fmt(bucketAmt)+' · Posted: '+fmt(auditResult.historyTotal)+'. Run Bucket Audit on the Backup tab.','s-err');
+    }
     updateStorageInfo();
   }catch(err){
     showStatus('Error saving deal: '+err.message,'s-err');
@@ -1184,6 +1198,84 @@ function exportCSV(){
 }
 function exportBackup(){ const data=JSON.stringify({version:5,exported:new Date().toISOString(),deals,envelopes,envHistory},null,2); const a=document.createElement('a'); a.href='data:application/json,'+encodeURIComponent(data); a.download='deal-tracker-backup-'+new Date().toISOString().slice(0,10)+'.json'; a.click(); }
 function updateStorageInfo(){ document.getElementById('storageInfo').innerHTML=`<span style="color:var(--green);font-weight:600">☁️ ${deals.length} deals · ${envelopes.length} envelopes</span> &nbsp;·&nbsp; <span style="color:var(--muted)">Saved to Supabase cloud database. Works on any device. Data is permanent.</span>`; }
+// ── BUCKET AUDIT ──
+function getHistoryDealId(h){
+  const src=String(h.source||'');
+  let m=src.match(/\(ID:\s*(\d+)\)/i);
+  if(m) return parseInt(m[1],10);
+  m=src.match(/Deal\s*#?\s*(\d+)/i);
+  if(m) return parseInt(m[1],10);
+  return null;
+}
+
+function dealHistoryRows(dealId){
+  const id=Number(dealId);
+  return envHistory.filter(h=>getHistoryDealId(h)===id);
+}
+
+function auditDealBucketPosting(dealId,expectedBucketAmount){
+  const expected=Math.round(parseFloat(expectedBucketAmount)||0);
+  const rows=dealHistoryRows(dealId);
+  const historyTotal=rows.reduce((s,h)=>s+(Math.round(parseFloat(h.amount)||0)),0);
+  return {pass:historyTotal===expected,expected,historyTotal,count:rows.length,rows};
+}
+
+function runBucketAudit(){
+  const box=document.getElementById('bucketAuditResults');
+  if(!box) return;
+  const dealProblems=[];
+  let dealPass=0, dealChecked=0, totalBuckets=0, totalPosted=0;
+
+  deals.forEach(d=>{
+    const bucketAmt=Math.round(parseFloat(d.buckets)||0);
+    if(bucketAmt<=0) return;
+    dealChecked++; totalBuckets+=bucketAmt;
+    const result=auditDealBucketPosting(d.id,bucketAmt);
+    totalPosted+=result.historyTotal;
+    if(result.pass){ dealPass++; }
+    else{ dealProblems.push({deal:d,result}); }
+  });
+
+  const envProblems=[];
+  envelopes.forEach(env=>{
+    const historyTotal=envHistory.filter(h=>h.envelope_id===env.id).reduce((s,h)=>s+(Math.round(parseFloat(h.amount)||0)),0);
+    const balance=Math.round(parseFloat(env.balance)||0);
+    if(historyTotal!==balance) envProblems.push({env,balance,historyTotal});
+  });
+
+  const totalEnvelopeBalances=envelopes.reduce((s,e)=>s+(Math.round(parseFloat(e.balance)||0)),0);
+  const totalHistory=envHistory.reduce((s,h)=>s+(Math.round(parseFloat(h.amount)||0)),0);
+  const allPass=dealProblems.length===0&&envProblems.length===0&&totalBuckets===totalPosted&&totalEnvelopeBalances===totalHistory;
+
+  let html=`<div style="padding:11px;border-radius:10px;border:1px solid ${allPass?'var(--green)':'var(--red)'};background:${allPass?'#082a18':'#2a0810'};color:${allPass?'var(--green)':'var(--red)'};font-weight:700;margin-bottom:10px;">${allPass?'✅ PASS: All bucket records match.':'⚠️ FAIL: Bucket records need attention.'}</div>`;
+  html+=`<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:10px;">
+    <div>Deals checked: <strong>${dealChecked}</strong> · Deal pass: <strong>${dealPass}</strong> · Deal fail: <strong>${dealProblems.length}</strong></div>
+    <div>Total deal buckets: <strong>${fmt(totalBuckets)}</strong> · Posted to history: <strong>${fmt(totalPosted)}</strong></div>
+    <div>Envelope balances: <strong>${fmt(totalEnvelopeBalances)}</strong> · All history: <strong>${fmt(totalHistory)}</strong></div>
+  </div>`;
+
+  if(dealProblems.length){
+    html+='<div style="margin-bottom:8px;font-weight:700;color:var(--red);">Deal posting problems</div>';
+    html+=dealProblems.map(x=>`<div style="background:var(--card);border:1px solid var(--border);border-radius:9px;padding:9px;margin-bottom:7px;">
+      <div><strong>Deal ${x.deal.id}</strong> — ${x.deal.car||'Unknown'} (${x.deal.date||''})</div>
+      <div>Bucket amount: <strong>${fmt(x.result.expected)}</strong> · History posted: <strong>${fmt(x.result.historyTotal)}</strong> · Difference: <strong>${fmt(x.result.expected-x.result.historyTotal)}</strong></div>
+    </div>`).join('');
+  }
+
+  if(envProblems.length){
+    html+='<div style="margin:10px 0 8px;font-weight:700;color:var(--red);">Envelope balance problems</div>';
+    html+=envProblems.map(x=>`<div style="background:var(--card);border:1px solid var(--border);border-radius:9px;padding:9px;margin-bottom:7px;">
+      <div><strong>${x.env.name}</strong></div>
+      <div>Balance shows: <strong>${fmt(x.balance)}</strong> · History total: <strong>${fmt(x.historyTotal)}</strong> · Difference: <strong>${fmt(x.balance-x.historyTotal)}</strong></div>
+    </div>`).join('');
+  }
+
+  if(allPass){
+    html+='<div style="color:var(--muted);font-size:0.78rem;">This means every deal with bucket money has matching envelope-history records, and every envelope balance matches its history total.</div>';
+  }
+  box.innerHTML=html;
+}
+
 // ── GAS & MAINTENANCE ──
 let gasExpenses=[];
 
