@@ -870,15 +870,20 @@ function recalc(){
 
 // ── BILLS + BUCKETS VALIDATION ──
 function checkBillsBuckets(){
-  const profit=parseFloat(document.getElementById('c_profit').textContent.replace(/[$,]/g,''))||0;
-  const bills=parseFloat(document.getElementById('f_bills').value)||0;
-  const buckets=parseFloat(document.getElementById('f_buckets').value)||0;
+  const profit=roundMoney(document.getElementById('c_profit').textContent.replace(/[$,]/g,''));
+  const bills=roundMoney(document.getElementById('f_bills').value);
+  const buckets=roundMoney(document.getElementById('f_buckets').value);
   const total=bills+buckets;
+  const diff=profit-total;
   const warn=document.getElementById('billsBucketsWarning');
   const btn=document.getElementById('saveDealBtn');
-  if(total>profit && profit>0){
+  if(total!==profit){
     warn.style.display='block';
-    warn.textContent='⚠️ Bills ($'+bills+') + Buckets ($'+buckets+') = $'+total+' which exceeds your Net Profit of $'+profit+'. Please adjust before saving.';
+    if(diff>0){
+      warn.textContent='⚠️ Profit allocation is short by '+fmt(diff)+'. Bills + Buckets must equal Net Profit before saving. Net Profit: '+fmt(profit)+' · Bills + Buckets: '+fmt(total)+'.';
+    } else {
+      warn.textContent='⚠️ Profit allocation is over by '+fmt(Math.abs(diff))+'. Bills + Buckets must equal Net Profit before saving. Net Profit: '+fmt(profit)+' · Bills + Buckets: '+fmt(total)+'.';
+    }
     btn.disabled=true; btn.style.opacity='0.4';
   } else {
     warn.style.display='none';
@@ -980,6 +985,7 @@ async function distributeBucketsForDeal(deal){
 function buildFullAuditSummary(){
   const dealProblems=[];
   const expenseProblems=[];
+  const allocationProblems=[];
   let dealPass=0, dealChecked=0, totalBuckets=0, totalPosted=0;
 
   deals.forEach(d=>{
@@ -999,6 +1005,12 @@ function buildFullAuditSummary(){
     if(expectedExpense!==savedExpense || expectedProfit!==savedProfit){
       expenseProblems.push({deal:d,expectedExpense,savedExpense,expectedProfit,savedProfit});
     }
+
+    const allocated=roundMoney(d.bills)+roundMoney(d.buckets);
+    const profit=roundMoney(d.profit);
+    if(allocated!==profit){
+      allocationProblems.push({deal:d,profit,allocated,difference:profit-allocated});
+    }
   });
 
   const envProblems=[];
@@ -1010,8 +1022,8 @@ function buildFullAuditSummary(){
 
   const totalEnvelopeBalances=envelopes.reduce((s,e)=>s+roundMoney(e.balance),0);
   const totalHistory=envHistory.reduce((s,h)=>s+roundMoney(h.amount),0);
-  const allPass=dealProblems.length===0 && envProblems.length===0 && expenseProblems.length===0 && totalBuckets===totalPosted && totalEnvelopeBalances===totalHistory;
-  return {allPass,dealProblems,envProblems,expenseProblems,dealPass,dealChecked,totalBuckets,totalPosted,totalEnvelopeBalances,totalHistory};
+  const allPass=dealProblems.length===0 && envProblems.length===0 && expenseProblems.length===0 && allocationProblems.length===0 && totalBuckets===totalPosted && totalEnvelopeBalances===totalHistory;
+  return {allPass,dealProblems,envProblems,expenseProblems,allocationProblems,dealPass,dealChecked,totalBuckets,totalPosted,totalEnvelopeBalances,totalHistory};
 }
 
 function showAutoAuditResult(actionLabel){
@@ -1027,7 +1039,7 @@ function showAutoAuditResult(actionLabel){
     </div>
     <div class="auto-audit-body">
       <div><strong>${actionLabel}</strong></div>
-      <div>Deals checked: <strong>${result.dealChecked}</strong> · Bucket fail: <strong>${result.dealProblems.length}</strong> · Expense math fail: <strong>${result.expenseProblems.length}</strong></div>
+      <div>Deals checked: <strong>${result.dealChecked}</strong> · Bucket fail: <strong>${result.dealProblems.length}</strong> · Expense math fail: <strong>${result.expenseProblems.length}</strong> · Allocation fail: <strong>${result.allocationProblems.length}</strong></div>
       <div>Bucket totals: <strong>${fmt(result.totalBuckets)}</strong> expected · <strong>${fmt(result.totalPosted)}</strong> posted</div>
       <div>Envelope balances: <strong>${fmt(result.totalEnvelopeBalances)}</strong> · History: <strong>${fmt(result.totalHistory)}</strong></div>
       <div style="font-size:0.72rem;margin-top:4px;">${now}</div>
@@ -1070,6 +1082,15 @@ async function addDeal(){
     bills:parseFloat(document.getElementById('f_bills').value)||0,
     buckets:bucketAmt,notes:document.getElementById('f_notes').value
   };
+
+  const allocated=roundMoney(dealObj.bills)+roundMoney(dealObj.buckets);
+  const profitRounded=roundMoney(dealObj.profit);
+  if(allocated!==profitRounded){
+    const diff=profitRounded-allocated;
+    showStatus('⚠️ Bills + Buckets must equal Net Profit before saving. Net Profit: '+fmt(profitRounded)+' · Bills + Buckets: '+fmt(allocated)+' · Difference: '+fmt(diff)+'.','s-err');
+    btn.disabled=false; btn.textContent='✅ Save Deal to Tracker';
+    return;
+  }
 
   try{
     const {data:saved,error}=await sb.from('deals').insert([dealObj]).select().single();
@@ -1208,6 +1229,13 @@ async function saveEdit(){
   if(bucketChanged&&!confirm('You changed this deal\'s bucket amount from '+fmt(oldBucketAmt)+' to '+fmt(newBucketAmt)+'. The app will rebuild this deal\'s bucket-history rows so the audit stays clean. Continue?')) return;
 
   const updated={car:document.getElementById('e_car').value||'Unknown',vin:document.getElementById('e_vin').value.toUpperCase(),lead_source:document.getElementById('e_source').value,city,car_cost:carCost,runner,gas,miles,ref_fee:refFee,ref_name:document.getElementById('e_ref_name').value,other_exp:otherExp,other_exp_category:document.getElementById('e_other_exp_category')?.value||'Other',other_exp_note:document.getElementById('e_other_exp_note')?.value||'',total_exp:totalExp,check_amt:checkAmt,profit:checkAmt-totalExp,bills:parseFloat(document.getElementById('e_bills').value)||0,buckets:newBucketAmt,date:document.getElementById('e_date').value,notes:document.getElementById('e_notes').value};
+  const allocated=roundMoney(updated.bills)+roundMoney(updated.buckets);
+  const profitRounded=roundMoney(updated.profit);
+  if(allocated!==profitRounded){
+    const diff=profitRounded-allocated;
+    alert('Bills + Buckets must equal Net Profit before saving. Net Profit: '+fmt(profitRounded)+' · Bills + Buckets: '+fmt(allocated)+' · Difference: '+fmt(diff)+'.');
+    return;
+  }
   try{
     const {error:updateErr}=await sb.from('deals').update(updated).eq('id',editingId);
     if(updateErr) throw updateErr;
