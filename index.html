@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Deal Tracker</title>
+<!-- VERSION: profit-allocation-audit-v2 -->
 <!-- Patch: all successful saves now use the fixed Auto Audit popup instead of the top-of-form status box. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -870,19 +871,19 @@ function recalc(){
 
 // ── BILLS + BUCKETS VALIDATION ──
 function checkBillsBuckets(){
-  const profit=roundMoney(document.getElementById('c_profit').textContent.replace(/[$,]/g,''));
-  const bills=roundMoney(document.getElementById('f_bills').value);
-  const buckets=roundMoney(document.getElementById('f_buckets').value);
-  const total=bills+buckets;
-  const diff=profit-total;
+  const profit=roundMoney(parseFloat(document.getElementById('c_profit').textContent.replace(/[$,]/g,''))||0);
+  const bills=roundMoney(parseFloat(document.getElementById('f_bills').value)||0);
+  const buckets=roundMoney(parseFloat(document.getElementById('f_buckets').value)||0);
+  const total=roundMoney(bills+buckets);
+  const diff=roundMoney(profit-total);
   const warn=document.getElementById('billsBucketsWarning');
   const btn=document.getElementById('saveDealBtn');
-  if(total!==profit){
+  if(profit>0 && diff!==0){
     warn.style.display='block';
     if(diff>0){
-      warn.textContent='⚠️ Profit allocation is short by '+fmt(diff)+'. Bills + Buckets must equal Net Profit before saving. Net Profit: '+fmt(profit)+' · Bills + Buckets: '+fmt(total)+'.';
+      warn.textContent='⚠️ Unallocated profit: '+fmt(diff)+'. Bills + Buckets must equal Net Profit before saving. Net Profit: '+fmt(profit)+' · Bills + Buckets: '+fmt(total)+'.';
     } else {
-      warn.textContent='⚠️ Profit allocation is over by '+fmt(Math.abs(diff))+'. Bills + Buckets must equal Net Profit before saving. Net Profit: '+fmt(profit)+' · Bills + Buckets: '+fmt(total)+'.';
+      warn.textContent='⚠️ Overallocated profit: '+fmt(Math.abs(diff))+'. Bills + Buckets must equal Net Profit before saving. Net Profit: '+fmt(profit)+' · Bills + Buckets: '+fmt(total)+'.';
     }
     btn.disabled=true; btn.style.opacity='0.4';
   } else {
@@ -1008,8 +1009,8 @@ function buildFullAuditSummary(){
 
     const allocated=roundMoney(d.bills)+roundMoney(d.buckets);
     const profit=roundMoney(d.profit);
-    if(allocated!==profit){
-      allocationProblems.push({deal:d,profit,allocated,difference:profit-allocated});
+    if(profit>0 && allocated!==profit){
+      allocationProblems.push({deal:d,profit,allocated,difference:roundMoney(profit-allocated)});
     }
   });
 
@@ -1040,6 +1041,7 @@ function showAutoAuditResult(actionLabel){
     <div class="auto-audit-body">
       <div><strong>${actionLabel}</strong></div>
       <div>Deals checked: <strong>${result.dealChecked}</strong> · Bucket fail: <strong>${result.dealProblems.length}</strong> · Expense math fail: <strong>${result.expenseProblems.length}</strong> · Allocation fail: <strong>${result.allocationProblems.length}</strong></div>
+      ${result.allocationProblems.length?'<div style="color:var(--red);font-weight:700;margin-top:4px;">Unallocated/overallocated profit found: '+result.allocationProblems.slice(0,3).map(x=>'Deal '+x.deal.id+' diff '+fmt(x.difference)).join(' · ')+'</div>':''}
       <div>Bucket totals: <strong>${fmt(result.totalBuckets)}</strong> expected · <strong>${fmt(result.totalPosted)}</strong> posted</div>
       <div>Envelope balances: <strong>${fmt(result.totalEnvelopeBalances)}</strong> · History: <strong>${fmt(result.totalHistory)}</strong></div>
       <div style="font-size:0.72rem;margin-top:4px;">${now}</div>
@@ -1085,9 +1087,9 @@ async function addDeal(){
 
   const allocated=roundMoney(dealObj.bills)+roundMoney(dealObj.buckets);
   const profitRounded=roundMoney(dealObj.profit);
-  if(allocated!==profitRounded){
-    const diff=profitRounded-allocated;
-    showStatus('⚠️ Bills + Buckets must equal Net Profit before saving. Net Profit: '+fmt(profitRounded)+' · Bills + Buckets: '+fmt(allocated)+' · Difference: '+fmt(diff)+'.','s-err');
+  if(profitRounded>0 && allocated!==profitRounded){
+    const diff=roundMoney(profitRounded-allocated);
+    showAuditReminder('⚠️ Deal NOT saved. Bills + Buckets must equal Net Profit. Net Profit: '+fmt(profitRounded)+' · Bills + Buckets: '+fmt(allocated)+' · Difference: '+fmt(diff)+'.');
     btn.disabled=false; btn.textContent='✅ Save Deal to Tracker';
     return;
   }
@@ -1229,13 +1231,15 @@ async function saveEdit(){
   if(bucketChanged&&!confirm('You changed this deal\'s bucket amount from '+fmt(oldBucketAmt)+' to '+fmt(newBucketAmt)+'. The app will rebuild this deal\'s bucket-history rows so the audit stays clean. Continue?')) return;
 
   const updated={car:document.getElementById('e_car').value||'Unknown',vin:document.getElementById('e_vin').value.toUpperCase(),lead_source:document.getElementById('e_source').value,city,car_cost:carCost,runner,gas,miles,ref_fee:refFee,ref_name:document.getElementById('e_ref_name').value,other_exp:otherExp,other_exp_category:document.getElementById('e_other_exp_category')?.value||'Other',other_exp_note:document.getElementById('e_other_exp_note')?.value||'',total_exp:totalExp,check_amt:checkAmt,profit:checkAmt-totalExp,bills:parseFloat(document.getElementById('e_bills').value)||0,buckets:newBucketAmt,date:document.getElementById('e_date').value,notes:document.getElementById('e_notes').value};
+
   const allocated=roundMoney(updated.bills)+roundMoney(updated.buckets);
   const profitRounded=roundMoney(updated.profit);
-  if(allocated!==profitRounded){
-    const diff=profitRounded-allocated;
-    alert('Bills + Buckets must equal Net Profit before saving. Net Profit: '+fmt(profitRounded)+' · Bills + Buckets: '+fmt(allocated)+' · Difference: '+fmt(diff)+'.');
+  if(profitRounded>0 && allocated!==profitRounded){
+    const diff=roundMoney(profitRounded-allocated);
+    showAuditReminder('⚠️ Edit NOT saved. Bills + Buckets must equal Net Profit. Net Profit: '+fmt(profitRounded)+' · Bills + Buckets: '+fmt(allocated)+' · Difference: '+fmt(diff)+'.');
     return;
   }
+
   try{
     const {error:updateErr}=await sb.from('deals').update(updated).eq('id',editingId);
     if(updateErr) throw updateErr;
