@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Deal Tracker</title>
+<!-- Patch: all successful saves now use the fixed Auto Audit popup instead of the top-of-form status box. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
@@ -649,7 +650,7 @@ async function loadAllData(){
 
     document.getElementById('statusBox').className='status';
     updateStorageInfo();
-    showAutoAuditResult('Deal saved successfully.');
+    showAutoAuditResult('Data refreshed successfully.');
   }catch(err){
     showStatus('Could not load data: '+err.message,'s-err');
   }
@@ -1036,7 +1037,9 @@ function showAutoAuditResult(actionLabel){
 
 function showAuditReminder(message){
   const result=showAutoAuditResult(message);
-  showStatus(message+' '+(result.allPass?'Auto Audit PASS.':'Auto Audit found an issue. Run Bucket Audit on Backup.'),result.allPass?'s-ok':'s-err');
+  const oldBox=document.getElementById('statusBox');
+  if(oldBox) oldBox.className='status';
+  return result;
 }
 
 // ── ADD DEAL ──
@@ -1080,9 +1083,9 @@ async function addDeal(){
 
     resetForm();
     if(auditResult.pass){
-      showStatus('✅ Deal saved! Net profit: '+fmt(checkAmt-totalExp)+' · Buckets verified ('+fmt(bucketAmt)+' posted).','s-ok');
+      showAuditReminder('✅ Deal saved. Net profit: '+fmt(checkAmt-totalExp)+' · Buckets verified: '+fmt(bucketAmt)+' posted.');
     } else {
-      showStatus('⚠️ Deal saved, but bucket verification FAILED for Deal '+saved.id+'. Expected '+fmt(bucketAmt)+' · Posted '+fmt(auditResult.historyTotal)+'. Run Bucket Audit before entering another deal.','s-err');
+      showAuditReminder('⚠️ Deal saved, but bucket verification FAILED for Deal '+saved.id+'. Expected '+fmt(bucketAmt)+' · Posted '+fmt(auditResult.historyTotal)+'. Run Bucket Audit before entering another deal.');
     }
     updateStorageInfo();
   }catch(err){
@@ -1219,7 +1222,7 @@ async function saveEdit(){
     }
 
     closeEdit(); renderTable(); updateTotals(); renderBuckets();
-    if(bucketChanged) showStatus('✅ Deal updated and bucket history rebuilt. Run Bucket Audit to confirm the full tracker.','s-ok');
+    if(bucketChanged) showAuditReminder('✅ Deal updated and bucket history rebuilt.');
     else showAuditReminder('✅ Deal updated.');
   }catch(err){
     showStatus('Error saving edit: '+err.message+' The data was refreshed; run Bucket Audit before making more changes.','s-err');
