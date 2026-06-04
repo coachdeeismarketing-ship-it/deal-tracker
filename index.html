@@ -4,8 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Deal Tracker</title>
-<!-- VERSION: allocation-warning-override-near-fields-fixed -->
-<!-- Patch: all successful saves now use the fixed Auto Audit popup instead of the top-of-form status box. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
@@ -204,16 +202,10 @@ tr.hl{background:rgba(0,229,160,0.05);}
 }
 .auto-audit-toast.show{display:block;}
 .auto-audit-toast.fail{border-color:var(--red);}
-.auto-audit-toast.warn{border-color:var(--orange);box-shadow:0 0 0 1px rgba(255,159,47,0.25);}
 .auto-audit-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;font-family:'Syne',sans-serif;font-weight:800;margin-bottom:5px;}
 .auto-audit-head .close{background:transparent;border:none;color:var(--muted);font-size:1rem;cursor:pointer;}
 .auto-audit-body{color:var(--muted);}
 .auto-audit-body strong{color:var(--text);}
-
-.allocation-warning-actions{display:flex;gap:10px;margin-top:14px;}
-.allocation-warning-actions button{flex:1;padding:12px;border:none;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:0.88rem;font-weight:800;cursor:pointer;}
-.allocation-fix{background:var(--surface);border:1px solid var(--border)!important;color:var(--text);}
-.allocation-save{background:var(--red);color:#fff;}
 
 #restoreInput{display:none;}
 
@@ -319,7 +311,6 @@ tr.hl{background:rgba(0,229,160,0.05);}
       <div class="fi full"><label>Other Expense Note</label><input type="text" id="f_other_exp_note" placeholder="e.g. DMV report, lien check, extra trip…"></div>
       <div class="fi"><label>Allocated to Bills ($)</label><input type="number" id="f_bills" placeholder="0" oninput="checkBillsBuckets()"></div>
       <div class="fi"><label>Allocated to Buckets ($)</label><input type="number" id="f_buckets" placeholder="0" oninput="recalc();showBucketPreview();checkBillsBuckets();"></div>
-      <div id="billsBucketsWarning" class="fi full" style="display:none;background:#2a0810;border:1px solid var(--red);color:var(--red);border-radius:9px;padding:10px 13px;font-size:0.82rem;line-height:1.45;"></div>
       <div class="fi full"><label>Date</label><input type="date" id="f_date"></div>
       <div class="fi full"><label>Notes (optional)</label><textarea id="f_notes" placeholder="Any extra details…"></textarea></div>
     </div>
@@ -339,6 +330,8 @@ tr.hl{background:rgba(0,229,160,0.05);}
       <div class="bucket-preview-title">🪣 Bucket Breakdown — How this splits into your envelopes</div>
       <div id="bucketPreviewRows"></div>
     </div>
+
+    <div id="billsBucketsWarning" style="display:none;background:#2a0810;border:1px solid var(--red);color:var(--red);border-radius:9px;padding:10px 13px;font-size:0.82rem;margin-bottom:12px;"></div>
 
     <button class="save-btn" id="saveDealBtn" onclick="addDeal()">✅ Save Deal to Tracker</button>
   </div>
@@ -583,18 +576,6 @@ tr.hl{background:rgba(0,229,160,0.05);}
 </div>
 
 
-
-<div class="modal-overlay" id="allocationWarningModal">
-  <div class="modal">
-    <div class="modal-title" style="color:var(--red)">⚠️ Allocation Warning</div>
-    <div id="allocationWarningBody" style="font-size:0.86rem;color:var(--muted);line-height:1.55;"></div>
-    <div class="allocation-warning-actions">
-      <button class="allocation-fix" onclick="closeAllocationWarning()">Fix It</button>
-      <button class="allocation-save" onclick="saveAnywayAllocation()">Save Anyway</button>
-    </div>
-  </div>
-</div>
-
 <div id="autoAuditToast" class="auto-audit-toast"></div>
 
 <script>
@@ -624,7 +605,7 @@ const DEFAULT_ENVELOPES=[
 ];
 
 // ── STATE ──
-let deals=[], envelopes=[], envHistory=[], listening=false, correcting=false, recog=null, editingId=null, depositEnvId=null, editingEnvId=null, pendingAllocationOverrideAction=null;
+let deals=[], envelopes=[], envHistory=[], listening=false, correcting=false, recog=null, editingId=null, depositEnvId=null, editingEnvId=null;
 
 // ── INIT ──
 async function init(){
@@ -668,7 +649,7 @@ async function loadAllData(){
 
     document.getElementById('statusBox').className='status';
     updateStorageInfo();
-    showAutoAuditResult('Data refreshed successfully.');
+    showAutoAuditResult('Deal saved successfully.');
   }catch(err){
     showStatus('Could not load data: '+err.message,'s-err');
   }
@@ -884,83 +865,28 @@ function recalc(){
   document.getElementById('c_profit').textContent=fmt(profit);
   document.getElementById('c_profit').style.color=profit>0?'var(--green)':profit<0?'var(--red)':'var(--muted)';
   if(city) document.getElementById('calcBox').style.display='block';
+
+  // Keep allocation warning updated as soon as profit can be calculated,
+  // not only after Bills/Buckets are typed.
+  checkBillsBuckets();
 }
 
 // ── BILLS + BUCKETS VALIDATION ──
 function checkBillsBuckets(){
-  const profit=roundMoney(parseFloat(document.getElementById('c_profit').textContent.replace(/[$,]/g,''))||0);
-  const bills=roundMoney(parseFloat(document.getElementById('f_bills').value)||0);
-  const buckets=roundMoney(parseFloat(document.getElementById('f_buckets').value)||0);
-  const total=roundMoney(bills+buckets);
-  const diff=roundMoney(profit-total);
+  const profit=parseFloat(document.getElementById('c_profit').textContent.replace(/[$,]/g,''))||0;
+  const bills=parseFloat(document.getElementById('f_bills').value)||0;
+  const buckets=parseFloat(document.getElementById('f_buckets').value)||0;
+  const total=bills+buckets;
   const warn=document.getElementById('billsBucketsWarning');
   const btn=document.getElementById('saveDealBtn');
-  if(!warn) return;
-  if(profit>0 && diff!==0){
+  if(total>profit && profit>0){
     warn.style.display='block';
-    if(diff>0){
-      warn.textContent='⚠️ Profit allocation is short by '+fmt(diff)+'. Net Profit: '+fmt(profit)+' · Bills + Buckets: '+fmt(total)+'.';
-    } else {
-      warn.textContent='⚠️ Profit allocation is over by '+fmt(Math.abs(diff))+'. Net Profit: '+fmt(profit)+' · Bills + Buckets: '+fmt(total)+'.';
-    }
-    if(btn){ btn.disabled=false; btn.style.opacity='1'; }
+    warn.textContent='⚠️ Bills ($'+bills+') + Buckets ($'+buckets+') = $'+total+' which exceeds your Net Profit of $'+profit+'. Please adjust before saving.';
+    btn.disabled=true; btn.style.opacity='0.4';
   } else {
     warn.style.display='none';
-    if(btn){ btn.disabled=false; btn.style.opacity='1'; }
+    btn.disabled=false; btn.style.opacity='1';
   }
-}
-
-function getFormAllocationMismatch(){
-  const profit=roundMoney(parseFloat(document.getElementById('c_profit').textContent.replace(/[$,]/g,''))||0);
-  const bills=roundMoney(parseFloat(document.getElementById('f_bills').value)||0);
-  const buckets=roundMoney(parseFloat(document.getElementById('f_buckets').value)||0);
-  const allocated=roundMoney(bills+buckets);
-  const diff=roundMoney(profit-allocated);
-  return {profit,bills,buckets,allocated,diff};
-}
-
-function getEditAllocationMismatch(updated){
-  const profit=roundMoney(updated.profit);
-  const bills=roundMoney(updated.bills);
-  const buckets=roundMoney(updated.buckets);
-  const allocated=roundMoney(bills+buckets);
-  const diff=roundMoney(profit-allocated);
-  return {profit,bills,buckets,allocated,diff};
-}
-
-function showAllocationWarning(mode, details){
-  pendingAllocationOverrideAction={mode,details};
-  const modal=document.getElementById('allocationWarningModal');
-  const body=document.getElementById('allocationWarningBody');
-  if(!modal||!body) return;
-  const direction=details.diff>0?'unallocated':'overallocated';
-  body.innerHTML=`
-    <p style="color:var(--text);font-weight:700;margin-bottom:8px;">This deal does not balance.</p>
-    <div>Net Profit: <strong style="color:var(--text);">${fmt(details.profit)}</strong></div>
-    <div>Bills: <strong style="color:var(--text);">${fmt(details.bills)}</strong></div>
-    <div>Buckets: <strong style="color:var(--text);">${fmt(details.buckets)}</strong></div>
-    <div>Bills + Buckets: <strong style="color:var(--text);">${fmt(details.allocated)}</strong></div>
-    <div style="color:var(--red);font-weight:700;margin-top:6px;">${direction==='unallocated'?'Unallocated':'Overallocated'}: ${fmt(Math.abs(details.diff))}</div>
-    <p style="margin-top:10px;">Tap <strong style="color:var(--text);">Fix It</strong> to correct the numbers, or <strong style="color:var(--text);">Save Anyway</strong> to save it as an intentional allocation warning.</p>`;
-  modal.classList.add('show');
-}
-
-function closeAllocationWarning(){
-  pendingAllocationOverrideAction=null;
-  const modal=document.getElementById('allocationWarningModal');
-  if(modal) modal.classList.remove('show');
-  const btn=document.getElementById('saveDealBtn');
-  if(btn){ btn.disabled=false; btn.textContent='✅ Save Deal to Tracker'; }
-}
-
-function saveAnywayAllocation(){
-  const action=pendingAllocationOverrideAction;
-  const modal=document.getElementById('allocationWarningModal');
-  if(modal) modal.classList.remove('show');
-  pendingAllocationOverrideAction=null;
-  if(!action) return;
-  if(action.mode==='add') addDeal(true);
-  if(action.mode==='edit') saveEdit(true);
 }
 
 // ── BUCKET SPLIT — rounded whole dollars that sum exactly ──
@@ -1057,8 +983,6 @@ async function distributeBucketsForDeal(deal){
 function buildFullAuditSummary(){
   const dealProblems=[];
   const expenseProblems=[];
-  const allocationProblems=[];
-  const allocationWarnings=[];
   let dealPass=0, dealChecked=0, totalBuckets=0, totalPosted=0;
 
   deals.forEach(d=>{
@@ -1078,14 +1002,6 @@ function buildFullAuditSummary(){
     if(expectedExpense!==savedExpense || expectedProfit!==savedProfit){
       expenseProblems.push({deal:d,expectedExpense,savedExpense,expectedProfit,savedProfit});
     }
-
-    const allocated=roundMoney(d.bills)+roundMoney(d.buckets);
-    const profit=roundMoney(d.profit);
-    if(profit>0 && allocated!==profit){
-      const item={deal:d,profit,allocated,difference:roundMoney(profit-allocated)};
-      if(d.allocation_override===true) allocationWarnings.push(item);
-      else allocationProblems.push(item);
-    }
   });
 
   const envProblems=[];
@@ -1097,20 +1013,8 @@ function buildFullAuditSummary(){
 
   const totalEnvelopeBalances=envelopes.reduce((s,e)=>s+roundMoney(e.balance),0);
   const totalHistory=envHistory.reduce((s,h)=>s+roundMoney(h.amount),0);
-  const allPass=dealProblems.length===0 && envProblems.length===0 && expenseProblems.length===0 && allocationProblems.length===0 && totalBuckets===totalPosted && totalEnvelopeBalances===totalHistory;
-  const hasWarnings=allPass && allocationWarnings.length>0;
-  return {allPass,hasWarnings,dealProblems,envProblems,expenseProblems,allocationProblems,allocationWarnings,dealPass,dealChecked,totalBuckets,totalPosted,totalEnvelopeBalances,totalHistory};
-}
-
-function describeAllocationIssue(x){
-  const d=x.deal||{};
-  const label=(d.car||'Unknown vehicle')+' (Deal ID '+(d.id||'?')+')';
-  const direction=x.difference>0?'Unallocated':'Overallocated';
-  return `<div style="margin-top:6px;padding:8px;border:1px solid var(--border);border-radius:8px;background:rgba(0,0,0,0.18);">
-    <div><strong>${label}</strong></div>
-    <div>Profit: <strong>${fmt(x.profit)}</strong> · Bills + Buckets: <strong>${fmt(x.allocated)}</strong></div>
-    <div>${direction}: <strong>${fmt(Math.abs(x.difference))}</strong></div>
-  </div>`;
+  const allPass=dealProblems.length===0 && envProblems.length===0 && expenseProblems.length===0 && totalBuckets===totalPosted && totalEnvelopeBalances===totalHistory;
+  return {allPass,dealProblems,envProblems,expenseProblems,dealPass,dealChecked,totalBuckets,totalPosted,totalEnvelopeBalances,totalHistory};
 }
 
 function showAutoAuditResult(actionLabel){
@@ -1118,19 +1022,15 @@ function showAutoAuditResult(actionLabel){
   const box=document.getElementById('autoAuditToast');
   if(!box) return result;
   const now=new Date().toLocaleString();
-  const stateClass=result.allPass?(result.hasWarnings?'warn':''):'fail';
-  const heading=result.allPass?(result.hasWarnings?'⚠️ Auto Audit WARNING':'✅ Auto Audit PASS'):'⚠️ Auto Audit FAIL';
-  box.className='auto-audit-toast show '+stateClass;
+  box.className='auto-audit-toast show '+(result.allPass?'':'fail');
   box.innerHTML=`
     <div class="auto-audit-head">
-      <div>${heading}</div>
+      <div>${result.allPass?'✅ Auto Audit PASS':'⚠️ Auto Audit FAIL'}</div>
       <button class="close" onclick="document.getElementById('autoAuditToast').className='auto-audit-toast'">✕</button>
     </div>
     <div class="auto-audit-body">
       <div><strong>${actionLabel}</strong></div>
-      <div>Deals checked: <strong>${result.dealChecked}</strong> · Bucket fail: <strong>${result.dealProblems.length}</strong> · Expense math fail: <strong>${result.expenseProblems.length}</strong> · Allocation fail: <strong>${result.allocationProblems.length}</strong> · Allocation warnings: <strong>${result.allocationWarnings.length}</strong></div>
-      ${result.allocationProblems.length?'<div style="color:var(--red);font-weight:700;margin-top:6px;">Allocation problem(s):</div>'+result.allocationProblems.slice(0,3).map(describeAllocationIssue).join(''):''}
-      ${result.allocationWarnings.length?'<div style="color:var(--orange);font-weight:700;margin-top:6px;">Intentional allocation warning(s):</div>'+result.allocationWarnings.slice(0,3).map(describeAllocationIssue).join(''):''}
+      <div>Deals checked: <strong>${result.dealChecked}</strong> · Bucket fail: <strong>${result.dealProblems.length}</strong> · Expense math fail: <strong>${result.expenseProblems.length}</strong></div>
       <div>Bucket totals: <strong>${fmt(result.totalBuckets)}</strong> expected · <strong>${fmt(result.totalPosted)}</strong> posted</div>
       <div>Envelope balances: <strong>${fmt(result.totalEnvelopeBalances)}</strong> · History: <strong>${fmt(result.totalHistory)}</strong></div>
       <div style="font-size:0.72rem;margin-top:4px;">${now}</div>
@@ -1140,13 +1040,11 @@ function showAutoAuditResult(actionLabel){
 
 function showAuditReminder(message){
   const result=showAutoAuditResult(message);
-  const oldBox=document.getElementById('statusBox');
-  if(oldBox) oldBox.className='status';
-  return result;
+  showStatus(message+' '+(result.allPass?'Auto Audit PASS.':'Auto Audit found an issue. Run Bucket Audit on Backup.'),result.allPass?'s-ok':'s-err');
 }
 
 // ── ADD DEAL ──
-async function addDeal(forceAllocationOverride=false){
+async function addDeal(){
   const city=document.getElementById('f_city').value;
   if(!city){ showStatus('Please select a city.','s-err'); return; }
   const vin=document.getElementById('f_vin').value;
@@ -1171,16 +1069,8 @@ async function addDeal(forceAllocationOverride=false){
     other_exp_note:document.getElementById('f_other_exp_note')?.value||'',
     total_exp:totalExp,check_amt:checkAmt,profit:checkAmt-totalExp,
     bills:parseFloat(document.getElementById('f_bills').value)||0,
-    buckets:bucketAmt,notes:document.getElementById('f_notes').value,
-    allocation_override:!!forceAllocationOverride
+    buckets:bucketAmt,notes:document.getElementById('f_notes').value
   };
-
-  const mismatch=getFormAllocationMismatch();
-  if(!forceAllocationOverride && mismatch.profit>0 && mismatch.diff!==0){
-    showAllocationWarning('add',mismatch);
-    btn.disabled=false; btn.textContent='✅ Save Deal to Tracker';
-    return;
-  }
 
   try{
     const {data:saved,error}=await sb.from('deals').insert([dealObj]).select().single();
@@ -1194,9 +1084,9 @@ async function addDeal(forceAllocationOverride=false){
 
     resetForm();
     if(auditResult.pass){
-      showAuditReminder('✅ Deal saved. Net profit: '+fmt(checkAmt-totalExp)+' · Buckets verified: '+fmt(bucketAmt)+' posted.');
+      showStatus('✅ Deal saved! Net profit: '+fmt(checkAmt-totalExp)+' · Buckets verified ('+fmt(bucketAmt)+' posted).','s-ok');
     } else {
-      showAuditReminder('⚠️ Deal saved, but bucket verification FAILED for Deal '+saved.id+'. Expected '+fmt(bucketAmt)+' · Posted '+fmt(auditResult.historyTotal)+'. Run Bucket Audit before entering another deal.');
+      showStatus('⚠️ Deal saved, but bucket verification FAILED for Deal '+saved.id+'. Expected '+fmt(bucketAmt)+' · Posted '+fmt(auditResult.historyTotal)+'. Run Bucket Audit before entering another deal.','s-err');
     }
     updateStorageInfo();
   }catch(err){
@@ -1305,7 +1195,7 @@ function openEdit(id){
   document.getElementById('editModal').classList.add('show');
 }
 function closeEdit(){ document.getElementById('editModal').classList.remove('show'); editingId=null; }
-async function saveEdit(forceAllocationOverride=false){
+async function saveEdit(){
   const idx=deals.findIndex(d=>d.id===editingId); if(idx<0) return;
   const oldDeal={...deals[idx]};
   const city=document.getElementById('e_city').value,carCost=parseFloat(document.getElementById('e_cost').value)||0,checkAmt=parseFloat(document.getElementById('e_check').value)||0,refFee=parseFloat(document.getElementById('e_ref_fee').value)||0,otherExp=parseFloat(document.getElementById('e_other_exp')?.value)||0;
@@ -1318,14 +1208,7 @@ async function saveEdit(forceAllocationOverride=false){
   const bucketChanged=newBucketAmt!==oldBucketAmt;
   if(bucketChanged&&!confirm('You changed this deal\'s bucket amount from '+fmt(oldBucketAmt)+' to '+fmt(newBucketAmt)+'. The app will rebuild this deal\'s bucket-history rows so the audit stays clean. Continue?')) return;
 
-  const updated={car:document.getElementById('e_car').value||'Unknown',vin:document.getElementById('e_vin').value.toUpperCase(),lead_source:document.getElementById('e_source').value,city,car_cost:carCost,runner,gas,miles,ref_fee:refFee,ref_name:document.getElementById('e_ref_name').value,other_exp:otherExp,other_exp_category:document.getElementById('e_other_exp_category')?.value||'Other',other_exp_note:document.getElementById('e_other_exp_note')?.value||'',total_exp:totalExp,check_amt:checkAmt,profit:checkAmt-totalExp,bills:parseFloat(document.getElementById('e_bills').value)||0,buckets:newBucketAmt,date:document.getElementById('e_date').value,notes:document.getElementById('e_notes').value,allocation_override:!!forceAllocationOverride};
-
-  const mismatch=getEditAllocationMismatch(updated);
-  if(!forceAllocationOverride && mismatch.profit>0 && mismatch.diff!==0){
-    showAllocationWarning('edit',mismatch);
-    return;
-  }
-
+  const updated={car:document.getElementById('e_car').value||'Unknown',vin:document.getElementById('e_vin').value.toUpperCase(),lead_source:document.getElementById('e_source').value,city,car_cost:carCost,runner,gas,miles,ref_fee:refFee,ref_name:document.getElementById('e_ref_name').value,other_exp:otherExp,other_exp_category:document.getElementById('e_other_exp_category')?.value||'Other',other_exp_note:document.getElementById('e_other_exp_note')?.value||'',total_exp:totalExp,check_amt:checkAmt,profit:checkAmt-totalExp,bills:parseFloat(document.getElementById('e_bills').value)||0,buckets:newBucketAmt,date:document.getElementById('e_date').value,notes:document.getElementById('e_notes').value};
   try{
     const {error:updateErr}=await sb.from('deals').update(updated).eq('id',editingId);
     if(updateErr) throw updateErr;
@@ -1340,7 +1223,7 @@ async function saveEdit(forceAllocationOverride=false){
     }
 
     closeEdit(); renderTable(); updateTotals(); renderBuckets();
-    if(bucketChanged) showAuditReminder('✅ Deal updated and bucket history rebuilt.');
+    if(bucketChanged) showStatus('✅ Deal updated and bucket history rebuilt. Run Bucket Audit to confirm the full tracker.','s-ok');
     else showAuditReminder('✅ Deal updated.');
   }catch(err){
     showStatus('Error saving edit: '+err.message+' The data was refreshed; run Bucket Audit before making more changes.','s-err');
