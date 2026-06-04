@@ -280,6 +280,20 @@ tr.hl{background:rgba(0,229,160,0.05);}
       <div class="fi full"><label>Check Amount — What You Received ($)</label><input type="number" id="f_check" placeholder="0" oninput="recalc()"></div>
       <div class="fi"><label>Referral — Person's Name</label><input type="text" id="f_ref_name" placeholder="Leave blank if none"></div>
       <div class="fi"><label>Referral Fee ($)</label><input type="number" id="f_ref_fee" placeholder="0" oninput="recalc()"></div>
+      <div class="fi"><label>Other Expense ($)</label><input type="number" id="f_other_exp" placeholder="0" oninput="recalc();checkBillsBuckets();"></div>
+      <div class="fi"><label>Other Expense Category</label>
+        <select id="f_other_exp_category">
+          <option value="Other">Other</option>
+          <option value="DMV">DMV</option>
+          <option value="Title/Lien">Title/Lien</option>
+          <option value="Extra Runner">Extra Runner</option>
+          <option value="Towing">Towing</option>
+          <option value="Parts">Parts</option>
+          <option value="Storage">Storage</option>
+          <option value="Marketing">Marketing</option>
+        </select>
+      </div>
+      <div class="fi full"><label>Other Expense Note</label><input type="text" id="f_other_exp_note" placeholder="e.g. DMV report, lien check, extra trip…"></div>
       <div class="fi"><label>Allocated to Bills ($)</label><input type="number" id="f_bills" placeholder="0" oninput="checkBillsBuckets()"></div>
       <div class="fi"><label>Allocated to Buckets ($)</label><input type="number" id="f_buckets" placeholder="0" oninput="recalc();showBucketPreview();checkBillsBuckets();"></div>
       <div class="fi full"><label>Date</label><input type="date" id="f_date"></div>
@@ -291,6 +305,7 @@ tr.hl{background:rgba(0,229,160,0.05);}
       <div class="calc-row"><span class="calc-label">Runner Fee</span><span id="c_runner">$0</span></div>
       <div class="calc-row"><span class="calc-label">Gas / Mileage</span><span id="c_gas">$0</span></div>
       <div class="calc-row"><span class="calc-label">Referral Fee</span><span id="c_ref">$0</span></div>
+      <div class="calc-row"><span class="calc-label">Other Expense</span><span id="c_other">$0</span></div>
       <div class="calc-row"><span class="calc-label" style="color:var(--orange)">Total Expenses</span><span id="c_exp" style="color:var(--orange)">$0</span></div>
       <div class="calc-row"><span class="calc-label">Check Amount</span><span id="c_check">$0</span></div>
       <div class="calc-row"><span>💰 Net Profit</span><span id="c_profit">$0</span></div>
@@ -364,7 +379,7 @@ tr.hl{background:rgba(0,229,160,0.05);}
   <div class="loading-bar" id="tableLoading" style="display:none">Loading deals…</div>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>#</th><th>Date</th><th>Car</th><th>VIN</th><th>Source</th><th>City</th><th>Car Cost</th><th>Runner</th><th>Gas</th><th>Referral</th><th>Expenses</th><th>Check</th><th>Profit</th><th>Bills</th><th>Buckets</th><th>Notes</th><th>Actions</th></tr></thead>
+      <thead><tr><th>#</th><th>Date</th><th>Car</th><th>VIN</th><th>Source</th><th>City</th><th>Car Cost</th><th>Runner</th><th>Gas</th><th>Referral</th><th>Other Expense</th><th>Other Category</th><th>Expenses</th><th>Check</th><th>Profit</th><th>Bills</th><th>Buckets</th><th>Notes</th><th>Actions</th></tr></thead>
       <tbody id="tbody"></tbody>
     </table>
   </div>
@@ -390,6 +405,10 @@ tr.hl{background:rgba(0,229,160,0.05);}
   <div class="card">
     <div class="card-title">📡 Performance by Lead Source</div>
     <div class="insight-grid" id="sourceGrid"><div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-style:italic;font-size:0.84rem;">No deals yet</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">💸 Expense Breakdown</div>
+    <div class="insight-grid" id="expenseGrid"><div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-style:italic;font-size:0.84rem;">No deals yet</div></div>
   </div>
   <div class="card">
     <div class="card-title">📅 Monthly Breakdown</div>
@@ -487,6 +506,20 @@ tr.hl{background:rgba(0,229,160,0.05);}
       <div class="fi"><label>Buckets ($)</label><input type="number" id="e_buckets"></div>
       <div class="fi"><label>Referral Name</label><input type="text" id="e_ref_name"></div>
       <div class="fi"><label>Referral Fee ($)</label><input type="number" id="e_ref_fee"></div>
+      <div class="fi"><label>Other Expense ($)</label><input type="number" id="e_other_exp"></div>
+      <div class="fi"><label>Other Expense Category</label>
+        <select id="e_other_exp_category">
+          <option value="Other">Other</option>
+          <option value="DMV">DMV</option>
+          <option value="Title/Lien">Title/Lien</option>
+          <option value="Extra Runner">Extra Runner</option>
+          <option value="Towing">Towing</option>
+          <option value="Parts">Parts</option>
+          <option value="Storage">Storage</option>
+          <option value="Marketing">Marketing</option>
+        </select>
+      </div>
+      <div class="fi full"><label>Other Expense Note</label><input type="text" id="e_other_exp_note"></div>
       <div class="fi full"><label>Date</label><input type="date" id="e_date"></div>
       <div class="fi full"><label>Notes</label><textarea id="e_notes" style="height:50px;resize:none"></textarea></div>
     </div>
@@ -703,8 +736,8 @@ async function processAudioRecording(chunks, mimeType, isCorrectionMode){
     const sources='Junk Car Lady, Lady Buyer, Copart, Other';
     const cv=isCorrectionMode?getCurrentFormValues():null;
     const textPrompt=isCorrectionMode
-      ?`Transcribe the audio then update this car deal form. Current values: ${JSON.stringify(cv)}. Apply ONLY corrections mentioned. Keep everything else same. Return ONLY valid JSON no markdown: {"transcription":"","car":"","vin":"","leadSource":"","city":"","carCost":null,"checkAmount":null,"miles":null,"runnerFee":null,"bills":null,"buckets":null,"refName":"","refFee":null,"date":"","notes":""}. Cities: Raleigh/Wake Forest/Cary/Garner/Knightdale/Clayton/Durham/Outside Area. Lead sources: ${sources}. date YYYY-MM-DD.`
-      :`Transcribe this audio and extract car deal info. Return ONLY valid JSON no markdown: {"transcription":"exact words spoken","car":"make model","vin":"last 6 or empty","leadSource":"from: ${sources} or empty","city":"from: Raleigh/Wake Forest/Cary/Garner/Knightdale/Clayton/Durham/Outside Area or empty","carCost":null,"checkAmount":null,"miles":null,"runnerFee":null,"bills":null,"buckets":null,"refName":"","refFee":null,"date":"YYYY-MM-DD or empty","notes":""}. Convert spoken numbers to digits. bills=allocated to bills. buckets=allocated to buckets.`;
+      ?`Transcribe the audio then update this car deal form. Current values: ${JSON.stringify(cv)}. Apply ONLY corrections mentioned. Keep everything else same. Return ONLY valid JSON no markdown: {"transcription":"","car":"","vin":"","leadSource":"","city":"","carCost":null,"checkAmount":null,"miles":null,"runnerFee":null,"bills":null,"buckets":null,"refName":"","refFee":null,"otherExp":null,"otherExpCategory":"","otherExpNote":"","date":"","notes":""}. Cities: Raleigh/Wake Forest/Cary/Garner/Knightdale/Clayton/Durham/Outside Area. Lead sources: ${sources}. date YYYY-MM-DD.`
+      :`Transcribe this audio and extract car deal info. Return ONLY valid JSON no markdown: {"transcription":"exact words spoken","car":"make model","vin":"last 6 or empty","leadSource":"from: ${sources} or empty","city":"from: Raleigh/Wake Forest/Cary/Garner/Knightdale/Clayton/Durham/Outside Area or empty","carCost":null,"checkAmount":null,"miles":null,"runnerFee":null,"bills":null,"buckets":null,"refName":"","refFee":null,"otherExp":null,"otherExpCategory":"","otherExpNote":"","date":"YYYY-MM-DD or empty","notes":""}. Convert spoken numbers to digits. bills=allocated to bills. buckets=allocated to buckets.`;
     const res=await callAI({model:'claude-sonnet-4-20250514',max_tokens:1500,
         messages:[{role:'user',content:[
           {type:'text',text:textPrompt},
@@ -752,8 +785,8 @@ async function processTextVoice(text, isCorrectionMode){
   const cv=isCorrectionMode?getCurrentFormValues():null;
   const sources='Junk Car Lady, Lady Buyer, Copart, Other';
   const prompt=isCorrectionMode
-    ?`Updating car deal form. Current: ${JSON.stringify(cv)}. Correction: "${text}". Apply ONLY what user mentioned. Return ONLY valid JSON no markdown: {"car":"","vin":"","leadSource":"","city":"","carCost":null,"checkAmount":null,"miles":null,"runnerFee":null,"bills":null,"buckets":null,"refName":"","refFee":null,"date":"","notes":""}. Cities: Raleigh/Wake Forest/Cary/Garner/Knightdale/Clayton/Durham/Outside Area. Lead sources: ${sources}. date YYYY-MM-DD.`
-    :`Extract car deal info from: "${text}". Return ONLY valid JSON: {"car":"","vin":"","leadSource":"","city":"","carCost":null,"checkAmount":null,"miles":null,"runnerFee":null,"bills":null,"buckets":null,"refName":"","refFee":null,"date":"","notes":""}. Cities: Raleigh/Wake Forest/Cary/Garner/Knightdale/Clayton/Durham/Outside Area. Lead sources: ${sources}. Convert spoken numbers to digits. date YYYY-MM-DD.`;
+    ?`Updating car deal form. Current: ${JSON.stringify(cv)}. Correction: "${text}". Apply ONLY what user mentioned. Return ONLY valid JSON no markdown: {"car":"","vin":"","leadSource":"","city":"","carCost":null,"checkAmount":null,"miles":null,"runnerFee":null,"bills":null,"buckets":null,"refName":"","refFee":null,"otherExp":null,"otherExpCategory":"","otherExpNote":"","date":"","notes":""}. Cities: Raleigh/Wake Forest/Cary/Garner/Knightdale/Clayton/Durham/Outside Area. Lead sources: ${sources}. date YYYY-MM-DD.`
+    :`Extract car deal info from: "${text}". Return ONLY valid JSON: {"car":"","vin":"","leadSource":"","city":"","carCost":null,"checkAmount":null,"miles":null,"runnerFee":null,"bills":null,"buckets":null,"refName":"","refFee":null,"otherExp":null,"otherExpCategory":"","otherExpNote":"","date":"","notes":""}. Cities: Raleigh/Wake Forest/Cary/Garner/Knightdale/Clayton/Durham/Outside Area. Lead sources: ${sources}. Convert spoken numbers to digits. date YYYY-MM-DD.`;
   try{
     const res=await callAI({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]});
     const data=await res.json();
@@ -763,7 +796,7 @@ async function processTextVoice(text, isCorrectionMode){
   }catch(err){ showStatus('Could not process. Fill in manually.','s-err'); }
 }
 
-function getCurrentFormValues(){ return {car:document.getElementById('f_car').value,vin:document.getElementById('f_vin').value,leadSource:document.getElementById('f_source').value,city:document.getElementById('f_city').value,carCost:document.getElementById('f_cost').value,checkAmount:document.getElementById('f_check').value,miles:document.getElementById('f_miles').value,runnerFee:document.getElementById('f_runner_out').value,bills:document.getElementById('f_bills').value,buckets:document.getElementById('f_buckets').value,refName:document.getElementById('f_ref_name').value,refFee:document.getElementById('f_ref_fee').value,date:document.getElementById('f_date').value,notes:document.getElementById('f_notes').value}; }
+function getCurrentFormValues(){ return {car:document.getElementById('f_car').value,vin:document.getElementById('f_vin').value,leadSource:document.getElementById('f_source').value,city:document.getElementById('f_city').value,carCost:document.getElementById('f_cost').value,checkAmount:document.getElementById('f_check').value,miles:document.getElementById('f_miles').value,runnerFee:document.getElementById('f_runner_out').value,bills:document.getElementById('f_bills').value,buckets:document.getElementById('f_buckets').value,refName:document.getElementById('f_ref_name').value,refFee:document.getElementById('f_ref_fee').value,otherExp:document.getElementById('f_other_exp')?.value||'',otherExpCategory:document.getElementById('f_other_exp_category')?.value||'Other',otherExpNote:document.getElementById('f_other_exp_note')?.value||'',date:document.getElementById('f_date').value,notes:document.getElementById('f_notes').value}; }
 
 function fillForm(p){
   if(p.car) document.getElementById('f_car').value=p.car;
@@ -778,6 +811,9 @@ function fillForm(p){
   if(p.buckets!=null){ document.getElementById('f_buckets').value=p.buckets; showBucketPreview(); }
   if(p.refName) document.getElementById('f_ref_name').value=p.refName;
   if(p.refFee!=null) document.getElementById('f_ref_fee').value=p.refFee;
+  if(p.otherExp!=null) document.getElementById('f_other_exp').value=p.otherExp;
+  if(p.otherExpCategory) document.getElementById('f_other_exp_category').value=p.otherExpCategory;
+  if(p.otherExpNote) document.getElementById('f_other_exp_note').value=p.otherExpNote;
   if(p.date) document.getElementById('f_date').value=p.date;
   if(p.notes) document.getElementById('f_notes').value=p.notes;
   recalc();
@@ -795,15 +831,16 @@ function fmtCents(n){ return '$'+(n||0).toLocaleString('en-US',{minimumFractionD
 
 // ── RECALC ──
 function recalc(){
-  const city=document.getElementById('f_city').value,carCost=parseFloat(document.getElementById('f_cost').value)||0,checkAmt=parseFloat(document.getElementById('f_check').value)||0,refFee=parseFloat(document.getElementById('f_ref_fee').value)||0;
+  const city=document.getElementById('f_city').value,carCost=parseFloat(document.getElementById('f_cost').value)||0,checkAmt=parseFloat(document.getElementById('f_check').value)||0,refFee=parseFloat(document.getElementById('f_ref_fee').value)||0,otherExp=parseFloat(document.getElementById('f_other_exp')?.value)||0;
   let runner=0,gas=0;
   if(city==='Outside Area'){ const miles=parseFloat(document.getElementById('f_miles').value)||0; gas=Math.round(miles*MILEAGE_RATE); runner=parseFloat(document.getElementById('f_runner_out').value)||0; }
   else if(CITIES[city]){ runner=CITIES[city].runner; gas=CITIES[city].gas; }
-  const totalExp=carCost+runner+gas+refFee,profit=checkAmt-totalExp;
+  const totalExp=carCost+runner+gas+refFee+otherExp,profit=checkAmt-totalExp;
   document.getElementById('c_cost').textContent=fmt(carCost);
   document.getElementById('c_runner').textContent=fmt(runner);
   document.getElementById('c_gas').textContent=fmt(gas);
   document.getElementById('c_ref').textContent=fmt(refFee);
+  document.getElementById('c_other').textContent=fmt(otherExp);
   document.getElementById('c_exp').textContent=fmt(totalExp);
   document.getElementById('c_check').textContent=fmt(checkAmt);
   document.getElementById('c_profit').textContent=fmt(profit);
@@ -855,6 +892,75 @@ function showBucketPreview(){
   preview.style.display='block';
 }
 
+
+// ── DATA INTEGRITY HELPERS ──
+function roundMoney(n){ return Math.round(parseFloat(n)||0); }
+
+async function checkedUpsertEnvelope(env,context='Envelope balance update'){
+  const {error}=await sb.from('envelope_balances').upsert({
+    id:env.id,name:env.name,pct:env.pct,goal:env.goal,grp:env.grp,realloc:env.realloc,balance:roundMoney(env.balance)
+  });
+  if(error) throw new Error(context+' failed for '+env.name+': '+error.message);
+}
+
+async function checkedInsertHistory(histItem,context='Envelope history insert'){
+  const {data,error}=await sb.from('envelope_history').insert([histItem]).select().single();
+  if(error) throw new Error(context+' failed: '+error.message);
+  if(!data) throw new Error(context+' did not return a saved row.');
+  envHistory.unshift(data);
+  return data;
+}
+
+async function checkedDeleteHistoryRow(histRow){
+  const {error}=await sb.from('envelope_history').delete().eq('id',histRow.id);
+  if(error) throw new Error('Could not delete envelope history row '+histRow.id+': '+error.message);
+  envHistory=envHistory.filter(h=>h.id!==histRow.id);
+}
+
+async function applyEnvelopeDelta(envId,delta,context='Envelope adjustment'){
+  const env=envelopes.find(e=>e.id===envId);
+  if(!env) throw new Error(context+' failed: envelope '+envId+' was not found.');
+  env.balance=Math.max(0,roundMoney(env.balance)+roundMoney(delta));
+  if(env.goal>0&&env.balance>env.goal) env.balance=env.goal;
+  await checkedUpsertEnvelope(env,context);
+  return env;
+}
+
+async function removeDealBucketHistory(dealId){
+  const rows=dealHistoryRows(dealId);
+  for(const h of rows){
+    await checkedDeleteHistoryRow(h);
+    await applyEnvelopeDelta(h.envelope_id,-roundMoney(h.amount),'Reversing bucket history');
+  }
+  return rows.length;
+}
+
+async function distributeBucketsForDeal(deal){
+  const bucketAmt=roundMoney(deal.buckets);
+  if(bucketAmt<=0) return {pass:true,expected:0,historyTotal:0,count:0,rows:[]};
+  const splits=splitBucket(bucketAmt);
+  const splitTotal=splits.reduce((sum,s)=>sum+roundMoney(s.share),0);
+  if(splitTotal!==bucketAmt){
+    throw new Error('Bucket split failed before saving. Expected '+fmt(bucketAmt)+' but split total was '+fmt(splitTotal)+'.');
+  }
+  for(const s of splits){
+    const env=await applyEnvelopeDelta(s.id,s.share,'Bucket balance update');
+    const histItem={
+      envelope_id:env.id,
+      date:deal.date||new Date().toISOString().split('T')[0],
+      amount:roundMoney(s.share),
+      source:'Deal: '+(deal.car||'Unknown')+' (ID:'+deal.id+')',
+      type:'deal'
+    };
+    await checkedInsertHistory(histItem,'Bucket history insert for '+env.name);
+  }
+  return auditDealBucketPosting(deal.id,bucketAmt);
+}
+
+function showAuditReminder(message){
+  showStatus(message+' Run Bucket Audit on the Backup tab to confirm the whole tracker.','s-info');
+}
+
 // ── ADD DEAL ──
 async function addDeal(){
   const city=document.getElementById('f_city').value;
@@ -862,12 +968,12 @@ async function addDeal(){
   const vin=document.getElementById('f_vin').value;
   if(vin.length>0&&vin.length<6){ showStatus('VIN must be exactly 6 characters or leave blank.','s-err'); return; }
   const btn=document.getElementById('saveDealBtn'); btn.disabled=true; btn.textContent='Saving…';
-  const carCost=parseFloat(document.getElementById('f_cost').value)||0,checkAmt=parseFloat(document.getElementById('f_check').value)||0,refFee=parseFloat(document.getElementById('f_ref_fee').value)||0;
+  const carCost=parseFloat(document.getElementById('f_cost').value)||0,checkAmt=parseFloat(document.getElementById('f_check').value)||0,refFee=parseFloat(document.getElementById('f_ref_fee').value)||0,otherExp=parseFloat(document.getElementById('f_other_exp')?.value)||0;
   let runner=0,gas=0,miles=0;
   if(city==='Outside Area'){ miles=parseFloat(document.getElementById('f_miles').value)||0; gas=Math.round(miles*MILEAGE_RATE); runner=parseFloat(document.getElementById('f_runner_out').value)||0; }
   else if(CITIES[city]){ runner=CITIES[city].runner; gas=CITIES[city].gas; }
-  const totalExp=carCost+runner+gas+refFee;
-  const bucketAmt=Math.round(parseFloat(document.getElementById('f_buckets').value)||0);
+  const totalExp=carCost+runner+gas+refFee+otherExp;
+  const bucketAmt=roundMoney(document.getElementById('f_buckets').value);
   const dealDate=document.getElementById('f_date').value||new Date().toISOString().split('T')[0];
   const dealCar=document.getElementById('f_car').value||'Unknown';
 
@@ -876,6 +982,9 @@ async function addDeal(){
     lead_source:document.getElementById('f_source').value||'Other',
     car_cost:carCost,runner,gas,miles,ref_fee:refFee,
     ref_name:document.getElementById('f_ref_name').value,
+    other_exp:otherExp,
+    other_exp_category:document.getElementById('f_other_exp_category')?.value||'Other',
+    other_exp_note:document.getElementById('f_other_exp_note')?.value||'',
     total_exp:totalExp,check_amt:checkAmt,profit:checkAmt-totalExp,
     bills:parseFloat(document.getElementById('f_bills').value)||0,
     buckets:bucketAmt,notes:document.getElementById('f_notes').value
@@ -886,42 +995,31 @@ async function addDeal(){
     if(error) throw error;
     deals.unshift(saved);
 
-    // Distribute bucket
+    let auditResult={pass:true,expected:bucketAmt,historyTotal:bucketAmt,count:0,rows:[]};
     if(bucketAmt>0){
-      const splits=splitBucket(bucketAmt);
-      for(const s of splits){
-        const env=envelopes.find(e=>e.id===s.id); if(!env) continue;
-        env.balance=Math.round(env.balance+s.share);
-        if(env.goal>0&&env.balance>env.goal) env.balance=env.goal;
-        const {error:balErr}=await sb.from('envelope_balances').upsert({id:env.id,name:env.name,pct:env.pct,goal:env.goal,grp:env.grp,realloc:env.realloc,balance:env.balance});
-        if(balErr) throw new Error('Bucket balance failed for '+env.name+': '+balErr.message);
-        const histItem={envelope_id:env.id,date:dealDate,amount:s.share,source:'Deal: '+dealCar+' (ID:'+saved.id+')',type:'deal'};
-        const {data:savedHist,error:histErr}=await sb.from('envelope_history').insert([histItem]).select().single();
-        if(histErr) throw new Error('Bucket history failed for '+env.name+': '+histErr.message);
-        if(!savedHist) throw new Error('Bucket history did not confirm for '+env.name);
-        envHistory.unshift(savedHist);
-      }
+      auditResult=await distributeBucketsForDeal(saved);
     }
 
-    const auditResult=auditDealBucketPosting(saved.id,bucketAmt);
     resetForm();
     if(auditResult.pass){
-      showStatus('✅ Deal saved! Net profit: '+fmt(checkAmt-totalExp)+' · Bucket audit PASS','s-ok');
+      showStatus('✅ Deal saved! Net profit: '+fmt(checkAmt-totalExp)+' · Buckets verified ('+fmt(bucketAmt)+' posted).','s-ok');
     } else {
-      showStatus('⚠️ Deal saved, but bucket audit FAILED for Deal '+saved.id+'. Bucket amount: '+fmt(bucketAmt)+' · Posted: '+fmt(auditResult.historyTotal)+'. Run Bucket Audit on the Backup tab.','s-err');
+      showStatus('⚠️ Deal saved, but bucket verification FAILED for Deal '+saved.id+'. Expected '+fmt(bucketAmt)+' · Posted '+fmt(auditResult.historyTotal)+'. Run Bucket Audit before entering another deal.','s-err');
     }
     updateStorageInfo();
   }catch(err){
-    showStatus('Error saving deal: '+err.message,'s-err');
+    showStatus('Error saving deal: '+err.message+' If the deal appears in the tracker, run Bucket Audit before adding another deal.','s-err');
+    await loadAllData();
   }finally{
     btn.disabled=false; btn.textContent='✅ Save Deal to Tracker';
   }
 }
 
 function resetForm(){
-  ['f_car','f_vin','f_cost','f_check','f_bills','f_buckets','f_ref_name','f_ref_fee','f_notes','f_miles','f_runner_out'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  ['f_car','f_vin','f_cost','f_check','f_bills','f_buckets','f_ref_name','f_ref_fee','f_other_exp','f_other_exp_note','f_notes','f_miles','f_runner_out'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   document.getElementById('f_city').value='';
   document.getElementById('f_source').value='';
+  document.getElementById('f_other_exp_category').value='Other';
   document.getElementById('f_date').value=new Date().toISOString().split('T')[0];
   document.getElementById('milesRow').style.display='none';
   document.getElementById('runnerRow').style.display='none';
@@ -938,15 +1036,15 @@ function resetVoice(){
 // ── TABLE ──
 function getFiltered(){
   const search=(document.getElementById('searchInput')?.value||'').toLowerCase(),city=document.getElementById('filterCity')?.value||'',source=document.getElementById('filterSource')?.value||'',from=document.getElementById('filterFrom')?.value||'',to=document.getElementById('filterTo')?.value||'';
-  return deals.filter(d=>{ const hay=[d.car,d.vin,d.city,d.notes,d.ref_name,d.date,d.lead_source].join(' ').toLowerCase(); if(search&&!hay.includes(search)) return false; if(city&&d.city!==city) return false; if(source&&d.lead_source!==source) return false; if(from&&d.date<from) return false; if(to&&d.date>to) return false; return true; });
+  return deals.filter(d=>{ const hay=[d.car,d.vin,d.city,d.notes,d.ref_name,d.date,d.lead_source,d.other_exp_category,d.other_exp_note].join(' ').toLowerCase(); if(search&&!hay.includes(search)) return false; if(city&&d.city!==city) return false; if(source&&d.lead_source!==source) return false; if(from&&d.date<from) return false; if(to&&d.date>to) return false; return true; });
 }
 function hl(str,search){ if(!search||!str) return str||'—'; const idx=str.toLowerCase().indexOf(search); if(idx<0) return str; return str.slice(0,idx)+'<mark style="background:rgba(0,229,160,0.25);border-radius:2px">'+str.slice(idx,idx+search.length)+'</mark>'+str.slice(idx+search.length); }
 
 function renderTable(){
   const filtered=getFiltered(),search=(document.getElementById('searchInput')?.value||'').toLowerCase(),tbody=document.getElementById('tbody');
-  if(!filtered.length){ tbody.innerHTML='<tr><td colspan="17"><div class="empty-row">No deals match your search or filters.</div></td></tr>'; updateTotals(filtered); return; }
+  if(!filtered.length){ tbody.innerHTML='<tr><td colspan="19"><div class="empty-row">No deals match your search or filters.</div></td></tr>'; updateTotals(filtered); return; }
   tbody.innerHTML=filtered.map((d,i)=>`
-    <tr class="${search&&[d.car,d.vin,d.city,d.ref_name,d.lead_source].join(' ').toLowerCase().includes(search)?'hl':''}">
+    <tr class="${search&&[d.car,d.vin,d.city,d.ref_name,d.lead_source,d.other_exp_category,d.other_exp_note].join(' ').toLowerCase().includes(search)?'hl':''}">
       <td style="color:var(--muted)">${i+1}</td>
       <td>${d.date||'—'}</td>
       <td>${hl(d.car,search)}</td>
@@ -957,6 +1055,8 @@ function renderTable(){
       <td>${fmt(d.runner)}</td>
       <td>${fmt(d.gas)}</td>
       <td>${d.ref_name?hl(d.ref_name,search)+' '+fmt(d.ref_fee):'—'}</td>
+      <td>${(d.other_exp||0)>0?fmt(d.other_exp)+'<div style="color:var(--muted);font-size:0.68rem">'+hl(d.other_exp_note||'',search)+'</div>':'—'}</td>
+      <td>${hl(d.other_exp_category||'—',search)}</td>
       <td class="orange">${fmt(d.total_exp)}</td>
       <td>${fmt(d.check_amt)}</td>
       <td class="${d.profit>0?'green':d.profit<0?'red-v':''}">${fmt(d.profit)}</td>
@@ -990,49 +1090,63 @@ function updateTotals(filtered){
 function clearFilters(){ document.getElementById('searchInput').value=''; document.getElementById('filterCity').value=''; document.getElementById('filterSource').value=''; document.getElementById('filterFrom').value=''; document.getElementById('filterTo').value=''; renderTable(); }
 
 async function deleteDeal(id){
-  if(!confirm('Delete this deal? This will also remove its bucket contributions from history.')) return;
+  if(!confirm('Delete this deal? This will also remove any bucket-history rows tied to this deal ID, including repair rows that mention this deal.')) return;
   try{
-    // Find deal
     const deal=deals.find(d=>d.id===id); if(!deal) return;
-    // Remove bucket history entries for this deal
-    const dealTag='ID:'+id+')';
-    const toRemove=envHistory.filter(h=>h.source&&h.source.includes(dealTag));
-    for(const h of toRemove){
-      await sb.from('envelope_history').delete().eq('id',h.id);
-      // Reverse balance
-      const env=envelopes.find(e=>e.id===h.envelope_id);
-      if(env){ env.balance=Math.max(0,Math.round(env.balance-h.amount)); await sb.from('envelope_balances').upsert({id:env.id,name:env.name,pct:env.pct,goal:env.goal,grp:env.grp,realloc:env.realloc,balance:env.balance}); }
-    }
-    envHistory=envHistory.filter(h=>!h.source||!h.source.includes(dealTag));
-    // Delete deal
-    await sb.from('deals').delete().eq('id',id);
+    const removedCount=await removeDealBucketHistory(id);
+    const {error:dealErr}=await sb.from('deals').delete().eq('id',id);
+    if(dealErr) throw dealErr;
     deals=deals.filter(d=>d.id!==id);
-    renderTable(); updateTotals();
-    showStatus('Deal deleted and bucket history updated.','s-ok');
-  }catch(err){ showStatus('Error deleting: '+err.message,'s-err'); }
+    renderTable(); updateTotals(); renderBuckets();
+    showStatus('✅ Deal deleted. Removed '+removedCount+' bucket-history row(s) and updated balances. Run Bucket Audit to confirm.','s-ok');
+  }catch(err){
+    showStatus('Error deleting: '+err.message+' Run Bucket Audit before making more changes.','s-err');
+    await loadAllData();
+  }
 }
 
 // ── EDIT DEAL ──
 function openEdit(id){
   const d=deals.find(x=>x.id===id); if(!d) return; editingId=id;
-  document.getElementById('e_car').value=d.car||''; document.getElementById('e_vin').value=d.vin||''; document.getElementById('e_source').value=d.lead_source||'Other'; document.getElementById('e_city').value=d.city||''; document.getElementById('e_cost').value=d.car_cost||''; document.getElementById('e_check').value=d.check_amt||''; document.getElementById('e_bills').value=d.bills||''; document.getElementById('e_buckets').value=d.buckets||''; document.getElementById('e_ref_name').value=d.ref_name||''; document.getElementById('e_ref_fee').value=d.ref_fee||''; document.getElementById('e_date').value=d.date||''; document.getElementById('e_notes').value=d.notes||'';
+  document.getElementById('e_car').value=d.car||''; document.getElementById('e_vin').value=d.vin||''; document.getElementById('e_source').value=d.lead_source||'Other'; document.getElementById('e_city').value=d.city||''; document.getElementById('e_cost').value=d.car_cost||''; document.getElementById('e_check').value=d.check_amt||''; document.getElementById('e_bills').value=d.bills||''; document.getElementById('e_buckets').value=d.buckets||''; document.getElementById('e_ref_name').value=d.ref_name||''; document.getElementById('e_ref_fee').value=d.ref_fee||''; document.getElementById('e_other_exp').value=d.other_exp||''; document.getElementById('e_other_exp_category').value=d.other_exp_category||'Other'; document.getElementById('e_other_exp_note').value=d.other_exp_note||''; document.getElementById('e_date').value=d.date||''; document.getElementById('e_notes').value=d.notes||'';
   editCityChanged(); if(d.city==='Outside Area'){ document.getElementById('e_miles').value=d.miles||''; document.getElementById('e_runner_out').value=d.runner||''; }
   document.getElementById('editModal').classList.add('show');
 }
 function closeEdit(){ document.getElementById('editModal').classList.remove('show'); editingId=null; }
 async function saveEdit(){
   const idx=deals.findIndex(d=>d.id===editingId); if(idx<0) return;
-  const city=document.getElementById('e_city').value,carCost=parseFloat(document.getElementById('e_cost').value)||0,checkAmt=parseFloat(document.getElementById('e_check').value)||0,refFee=parseFloat(document.getElementById('e_ref_fee').value)||0;
+  const oldDeal={...deals[idx]};
+  const city=document.getElementById('e_city').value,carCost=parseFloat(document.getElementById('e_cost').value)||0,checkAmt=parseFloat(document.getElementById('e_check').value)||0,refFee=parseFloat(document.getElementById('e_ref_fee').value)||0,otherExp=parseFloat(document.getElementById('e_other_exp')?.value)||0;
   let runner=0,gas=0,miles=0;
   if(city==='Outside Area'){ miles=parseFloat(document.getElementById('e_miles').value)||0; gas=Math.round(miles*MILEAGE_RATE); runner=parseFloat(document.getElementById('e_runner_out').value)||0; }
   else if(CITIES[city]){ runner=CITIES[city].runner; gas=CITIES[city].gas; }
-  const totalExp=carCost+runner+gas+refFee;
-  const updated={car:document.getElementById('e_car').value||'Unknown',vin:document.getElementById('e_vin').value.toUpperCase(),lead_source:document.getElementById('e_source').value,city,car_cost:carCost,runner,gas,miles,ref_fee:refFee,ref_name:document.getElementById('e_ref_name').value,total_exp:totalExp,check_amt:checkAmt,profit:checkAmt-totalExp,bills:parseFloat(document.getElementById('e_bills').value)||0,buckets:parseFloat(document.getElementById('e_buckets').value)||0,date:document.getElementById('e_date').value,notes:document.getElementById('e_notes').value};
+  const totalExp=carCost+runner+gas+refFee+otherExp;
+  const newBucketAmt=roundMoney(document.getElementById('e_buckets').value);
+  const oldBucketAmt=roundMoney(oldDeal.buckets);
+  const bucketChanged=newBucketAmt!==oldBucketAmt;
+  if(bucketChanged&&!confirm('You changed this deal\'s bucket amount from '+fmt(oldBucketAmt)+' to '+fmt(newBucketAmt)+'. The app will rebuild this deal\'s bucket-history rows so the audit stays clean. Continue?')) return;
+
+  const updated={car:document.getElementById('e_car').value||'Unknown',vin:document.getElementById('e_vin').value.toUpperCase(),lead_source:document.getElementById('e_source').value,city,car_cost:carCost,runner,gas,miles,ref_fee:refFee,ref_name:document.getElementById('e_ref_name').value,other_exp:otherExp,other_exp_category:document.getElementById('e_other_exp_category')?.value||'Other',other_exp_note:document.getElementById('e_other_exp_note')?.value||'',total_exp:totalExp,check_amt:checkAmt,profit:checkAmt-totalExp,bills:parseFloat(document.getElementById('e_bills').value)||0,buckets:newBucketAmt,date:document.getElementById('e_date').value,notes:document.getElementById('e_notes').value};
   try{
-    await sb.from('deals').update(updated).eq('id',editingId);
+    const {error:updateErr}=await sb.from('deals').update(updated).eq('id',editingId);
+    if(updateErr) throw updateErr;
     deals[idx]={...deals[idx],...updated};
-    closeEdit(); renderTable();
-  }catch(err){ showStatus('Error saving: '+err.message,'s-err'); }
+
+    if(bucketChanged){
+      await removeDealBucketHistory(editingId);
+      if(newBucketAmt>0){
+        const auditResult=await distributeBucketsForDeal(deals[idx]);
+        if(!auditResult.pass) throw new Error('Edited deal bucket verification failed. Expected '+fmt(newBucketAmt)+' but posted '+fmt(auditResult.historyTotal)+'.');
+      }
+    }
+
+    closeEdit(); renderTable(); updateTotals(); renderBuckets();
+    if(bucketChanged) showStatus('✅ Deal updated and bucket history rebuilt. Run Bucket Audit to confirm the full tracker.','s-ok');
+    else showAuditReminder('✅ Deal updated.');
+  }catch(err){
+    showStatus('Error saving edit: '+err.message+' The data was refreshed; run Bucket Audit before making more changes.','s-err');
+    await loadAllData();
+  }
 }
 
 // ── BUCKETS ──
@@ -1083,35 +1197,38 @@ function openDeposit(envId){ depositEnvId=envId; const env=envelopes.find(e=>e.i
 function closeDeposit(){ document.getElementById('depositModal').classList.remove('show'); depositEnvId=null; }
 async function saveDeposit(){
   const env=envelopes.find(e=>e.id===depositEnvId); if(!env) return;
-  const amount=Math.round(parseFloat(document.getElementById('dep_amount').value)||0);
+  const amount=roundMoney(document.getElementById('dep_amount').value);
   if(!amount){ alert('Please enter an amount.'); return; }
   const note=document.getElementById('dep_note').value||'Direct deposit',date=document.getElementById('dep_date').value||new Date().toISOString().split('T')[0];
   const modal=document.getElementById('depositModal');
   const editId=modal.dataset.editId?parseInt(modal.dataset.editId):null;
   try{
     if(editId){
-      // Editing existing deposit
       const oldHist=envHistory.find(h=>h.id===editId);
-      const oldAmount=oldHist?oldHist.amount:0;
-      // Reverse old amount and apply new
-      env.balance=Math.max(0,Math.round(env.balance-oldAmount+amount));
+      const oldAmount=oldHist?roundMoney(oldHist.amount):0;
+      if(oldHist&&getHistoryDealId(oldHist)!==getHistoryDealId({source:note})){
+        if(!confirm('This deposit appears connected to a deal/repair note. Changing the note may affect the audit. Continue?')) return;
+      }
+      env.balance=Math.max(0,roundMoney(env.balance)-oldAmount+amount);
       if(env.goal>0&&env.balance>env.goal) env.balance=env.goal;
-      await sb.from('envelope_balances').upsert({id:env.id,name:env.name,pct:env.pct,goal:env.goal,grp:env.grp,realloc:env.realloc,balance:env.balance});
-      await sb.from('envelope_history').update({amount,source:note,date}).eq('id',editId);
+      await checkedUpsertEnvelope(env,'Direct deposit edit balance update');
+      const {error:histErr}=await sb.from('envelope_history').update({amount,source:note,date}).eq('id',editId);
+      if(histErr) throw histErr;
       const idx=envHistory.findIndex(h=>h.id===editId);
       if(idx>=0) envHistory[idx]={...envHistory[idx],amount,source:note,date};
       modal.dataset.editId=''; modal.dataset.editEnvId='';
+      closeDeposit(); renderBuckets();
+      showAuditReminder('✅ Deposit updated.');
     } else {
-      // New deposit
-      env.balance=Math.round(env.balance+amount);
+      env.balance=roundMoney(env.balance)+amount;
       if(env.goal>0&&env.balance>env.goal) env.balance=env.goal;
-      await sb.from('envelope_balances').upsert({id:env.id,name:env.name,pct:env.pct,goal:env.goal,grp:env.grp,realloc:env.realloc,balance:env.balance});
+      await checkedUpsertEnvelope(env,'Direct deposit balance update');
       const histItem={envelope_id:env.id,date,amount,source:note,type:'direct'};
-      const {data:savedHist}=await sb.from('envelope_history').insert([histItem]).select().single();
-      if(savedHist) envHistory.unshift(savedHist);
+      await checkedInsertHistory(histItem,'Direct deposit history insert');
+      closeDeposit(); renderBuckets();
+      showAuditReminder('✅ Deposit added.');
     }
-    closeDeposit(); renderBuckets();
-  }catch(err){ showStatus('Error saving deposit: '+err.message,'s-err'); }
+  }catch(err){ showStatus('Error saving deposit: '+err.message,'s-err'); await loadAllData(); }
 }
 
 // ── EDIT/DELETE DIRECT DEPOSITS ──
@@ -1130,17 +1247,20 @@ function editDeposit(envId, histId){
 }
 
 async function deleteDeposit(envId, histId){
-  if(!confirm('Delete this deposit? The amount will be reversed from the envelope balance.')) return;
+  const h=envHistory.find(x=>x.id===histId);
+  if(!h) return;
+  const linkedDealId=getHistoryDealId(h);
+  const confirmMsg=linkedDealId
+    ? 'This deposit appears connected to Deal '+linkedDealId+'. Deleting it may make that deal fail the bucket audit. Delete anyway?'
+    : 'Delete this deposit? The amount will be reversed from the envelope balance.';
+  if(!confirm(confirmMsg)) return;
   const env=envelopes.find(e=>e.id===envId); if(!env) return;
-  const h=envHistory.find(x=>x.id===histId); if(!h) return;
   try{
-    await sb.from('envelope_history').delete().eq('id',histId);
-    env.balance=Math.max(0,Math.round(env.balance-h.amount));
-    await sb.from('envelope_balances').upsert({id:env.id,name:env.name,pct:env.pct,goal:env.goal,grp:env.grp,realloc:env.realloc,balance:env.balance});
-    envHistory=envHistory.filter(x=>x.id!==histId);
+    await checkedDeleteHistoryRow(h);
+    await applyEnvelopeDelta(env.id,-roundMoney(h.amount),'Direct deposit delete balance update');
     renderBuckets();
-    showStatus('✅ Deposit deleted and balance updated.','s-ok');
-  }catch(err){ showStatus('Error deleting deposit: '+err.message,'s-err'); }
+    showAuditReminder('✅ Deposit deleted and balance updated.');
+  }catch(err){ showStatus('Error deleting deposit: '+err.message,'s-err'); await loadAllData(); }
 }
 
 // ── EDIT ENVELOPE ──
@@ -1151,19 +1271,42 @@ async function saveEnvelope(){
   const name=document.getElementById('env_name').value.trim(),pct=parseFloat(document.getElementById('env_pct').value)||0,goal=parseFloat(document.getElementById('env_goal').value)||0,grp=document.getElementById('env_group').value.trim()||'Custom',realloc=document.getElementById('env_realloc').value.trim();
   if(!name){ alert('Please enter a name.'); return; }
   try{
-    if(editingEnvId){ const env=envelopes.find(e=>e.id===editingEnvId); if(!env) return; env.name=name; env.pct=pct; env.goal=goal; env.grp=grp; env.realloc=realloc; await sb.from('envelope_balances').upsert({id:env.id,name,pct,goal,grp,realloc,balance:env.balance}); }
-    else{ const newEnv={id:'e'+Date.now(),name,pct,goal,grp,realloc,balance:0}; envelopes.push(newEnv); await sb.from('envelope_balances').insert([{id:newEnv.id,name,pct,goal,grp,realloc,balance:0}]); }
-    closeEnvEdit(); renderBuckets();
+    if(editingEnvId){
+      const env=envelopes.find(e=>e.id===editingEnvId); if(!env) return;
+      const oldPct=env.pct;
+      env.name=name; env.pct=pct; env.goal=goal; env.grp=grp; env.realloc=realloc;
+      await checkedUpsertEnvelope(env,'Envelope settings save');
+      closeEnvEdit(); renderBuckets();
+      showAuditReminder(oldPct!==pct?'✅ Envelope updated. Percentage changes affect future deals only.':'✅ Envelope updated.');
+    } else {
+      const newEnv={id:'e'+Date.now(),name,pct,goal,grp,realloc,balance:0};
+      const {error}=await sb.from('envelope_balances').insert([{id:newEnv.id,name,pct,goal,grp,realloc,balance:0}]);
+      if(error) throw error;
+      envelopes.push(newEnv);
+      closeEnvEdit(); renderBuckets();
+      showStatus('✅ New envelope added. It will be included in future bucket splits. Run Bucket Audit if you want to confirm current totals.','s-ok');
+    }
   }catch(err){ showStatus('Error saving envelope: '+err.message,'s-err'); }
 }
 async function deleteEnvelope(){
-  if(!confirm('Delete this envelope? Its balance and history will be lost.')) return;
+  const env=envelopes.find(e=>e.id===editingEnvId);
+  if(!env) return;
+  const historyCount=envHistory.filter(h=>h.envelope_id===editingEnvId).length;
+  const balance=roundMoney(env.balance);
+  if(historyCount>0||balance>0){
+    alert('For safety, this envelope cannot be deleted because it already has balance/history. Set its percentage to 0 instead so old records stay auditable.');
+    return;
+  }
+  if(!confirm('Delete this empty envelope?')) return;
   try{
-    await sb.from('envelope_history').delete().eq('envelope_id',editingEnvId);
-    await sb.from('envelope_balances').delete().eq('id',editingEnvId);
+    const {error:histErr}=await sb.from('envelope_history').delete().eq('envelope_id',editingEnvId);
+    if(histErr) throw histErr;
+    const {error:balErr}=await sb.from('envelope_balances').delete().eq('id',editingEnvId);
+    if(balErr) throw balErr;
     envelopes=envelopes.filter(e=>e.id!==editingEnvId);
     envHistory=envHistory.filter(h=>h.envelope_id!==editingEnvId);
     closeEnvEdit(); renderBuckets();
+    showAuditReminder('✅ Empty envelope deleted.');
   }catch(err){ showStatus('Error: '+err.message,'s-err'); }
 }
 
@@ -1181,6 +1324,24 @@ function renderInsights(){
   const sources=Object.keys(srcMap).sort((a,b)=>srcMap[b].profit-srcMap[a].profit);
   document.getElementById('sourceGrid').innerHTML=sources.length?sources.map(s=>`<div class="insight-card"><div class="insight-name">📡 ${s}</div><div class="insight-stat"><span>Deals</span><span>${srcMap[s].deals}</span></div><div class="insight-stat"><span>Revenue</span><span style="color:var(--orange)">${fmt(srcMap[s].revenue)}</span></div><div class="insight-stat"><span>Profit</span><span style="color:${srcMap[s].profit>=0?'var(--green)':'var(--red)'}">${fmt(srcMap[s].profit)}</span></div></div>`).join(''):'<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-style:italic;font-size:0.84rem;">No deals yet</div>';
 
+  // Expense Breakdown
+  const expenseTotals={
+    'Car Cost':deals.reduce((s,d)=>s+(parseFloat(d.car_cost)||0),0),
+    'Runner Fees':deals.reduce((s,d)=>s+(parseFloat(d.runner)||0),0),
+    'Gas / Mileage':deals.reduce((s,d)=>s+(parseFloat(d.gas)||0),0),
+    'Referral Fees':deals.reduce((s,d)=>s+(parseFloat(d.ref_fee)||0),0)
+  };
+  deals.forEach(d=>{
+    const amt=parseFloat(d.other_exp)||0;
+    if(amt>0){
+      const cat=d.other_exp_category||'Other';
+      expenseTotals[cat]=(expenseTotals[cat]||0)+amt;
+    }
+  });
+  const expenseRows=Object.keys(expenseTotals).filter(k=>expenseTotals[k]>0).sort((a,b)=>expenseTotals[b]-expenseTotals[a]);
+  const totalExpenseBreakdown=expenseRows.reduce((s,k)=>s+expenseTotals[k],0);
+  document.getElementById('expenseGrid').innerHTML=expenseRows.length?expenseRows.map(k=>`<div class="insight-card"><div class="insight-name">💸 ${k}</div><div class="insight-stat"><span>Total</span><span style="color:var(--orange)">${fmt(expenseTotals[k])}</span></div><div class="insight-stat"><span>Share</span><span>${totalExpenseBreakdown?Math.round(expenseTotals[k]/totalExpenseBreakdown*100):0}%</span></div></div>`).join(''):'<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted);font-style:italic;font-size:0.84rem;">No expenses yet</div>';
+
   // Monthly
   const monthMap={};
   deals.forEach(d=>{ if(!d.date) return; const key=d.date.slice(0,7); if(!monthMap[key]) monthMap[key]={deals:0,profit:0,revenue:0}; monthMap[key].deals++; monthMap[key].profit+=(d.profit||0); monthMap[key].revenue+=(d.check_amt||0); });
@@ -1191,8 +1352,8 @@ function renderInsights(){
 // ── EXPORT ──
 function exportCSV(){
   const filtered=getFiltered(); if(!filtered.length){ alert('No deals to export.'); return; }
-  const rows=[['#','Date','Car','VIN Last 6','Lead Source','City','Car Cost','Runner Fee','Gas','Referral Name','Referral Fee','Total Expenses','Check Amount','Net Profit','Allocated Bills','Allocated Buckets','Notes']];
-  filtered.forEach((d,i)=>rows.push([i+1,d.date,d.car,d.vin,d.lead_source,d.city,d.car_cost,d.runner,d.gas,d.ref_name||'',d.ref_fee,d.total_exp,d.check_amt,d.profit,d.bills,d.buckets,d.notes||'']));
+  const rows=[['#','Date','Car','VIN Last 6','Lead Source','City','Car Cost','Runner Fee','Gas','Referral Name','Referral Fee','Other Expense','Other Expense Category','Other Expense Note','Total Expenses','Check Amount','Net Profit','Allocated Bills','Allocated Buckets','Notes']];
+  filtered.forEach((d,i)=>rows.push([i+1,d.date,d.car,d.vin,d.lead_source,d.city,d.car_cost,d.runner,d.gas,d.ref_name||'',d.ref_fee,d.other_exp||0,d.other_exp_category||'',d.other_exp_note||'',d.total_exp,d.check_amt,d.profit,d.bills,d.buckets,d.notes||'']));
   const csv=rows.map(r=>r.map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(',')).join('\n');
   const a=document.createElement('a'); a.href='data:text/csv,'+encodeURIComponent(csv); a.download='deal-tracker-'+new Date().toISOString().slice(0,10)+'.csv'; a.click();
 }
