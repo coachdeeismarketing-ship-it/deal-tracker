@@ -282,6 +282,7 @@ tr.hl{background:rgba(0,229,160,0.05);}
       <div class="fi"><label>Referral Fee ($)</label><input type="number" id="f_ref_fee" placeholder="0" oninput="recalc()"></div>
       <div class="fi"><label>Allocated to Bills ($)</label><input type="number" id="f_bills" placeholder="0" oninput="checkBillsBuckets()"></div>
       <div class="fi"><label>Allocated to Buckets ($)</label><input type="number" id="f_buckets" placeholder="0" oninput="recalc();showBucketPreview();checkBillsBuckets();"></div>
+      <div id="billsBucketsWarning" class="fi full" style="display:none;background:#2a0810;border:1px solid var(--red);color:var(--red);border-radius:9px;padding:10px 13px;font-size:0.82rem;line-height:1.45;"></div>
       <div class="fi full"><label>Date</label><input type="date" id="f_date"></div>
       <div class="fi full"><label>Notes (optional)</label><textarea id="f_notes" placeholder="Any extra details…"></textarea></div>
     </div>
@@ -300,8 +301,6 @@ tr.hl{background:rgba(0,229,160,0.05);}
       <div class="bucket-preview-title">🪣 Bucket Breakdown — How this splits into your envelopes</div>
       <div id="bucketPreviewRows"></div>
     </div>
-
-    <div id="billsBucketsWarning" style="display:none;background:#2a0810;border:1px solid var(--red);color:var(--red);border-radius:9px;padding:10px 13px;font-size:0.82rem;margin-bottom:12px;"></div>
 
     <button class="save-btn" id="saveDealBtn" onclick="addDeal()">✅ Save Deal to Tracker</button>
   </div>
