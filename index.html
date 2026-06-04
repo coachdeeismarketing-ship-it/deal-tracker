@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Deal Tracker</title>
-<!-- VERSION: allocation-warning-override-near-fields-fixed -->
+<!-- VERSION: shared-trip-expense-controls -->
 <!-- Patch: all successful saves now use the fixed Auto Audit popup instead of the top-of-form status box. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -297,6 +297,8 @@ tr.hl{background:rgba(0,229,160,0.05);}
           <option value="Outside Area">Outside Service Area</option>
         </select>
       </div>
+      <div class="fi"><label>Charge Gas?</label><select id="f_charge_gas" onchange="recalc();checkBillsBuckets();"><option value="yes">Yes</option><option value="no">No — shared trip</option></select></div>
+      <div class="fi"><label>Charge Runner?</label><select id="f_charge_runner" onchange="recalc();checkBillsBuckets();"><option value="yes">Yes</option><option value="no">No</option></select></div>
       <div class="fi" id="milesRow" style="display:none"><label>Round Trip Miles</label><input type="number" id="f_miles" placeholder="e.g. 120" oninput="recalc()"></div>
       <div class="fi" id="runnerRow" style="display:none"><label>Runner Fee ($)</label><input type="number" id="f_runner_out" placeholder="75–100" oninput="recalc()"></div>
       <div class="fi full"><label>Car Cost — What You Paid ($)</label><input type="number" id="f_cost" placeholder="0" oninput="recalc()"></div>
@@ -520,6 +522,8 @@ tr.hl{background:rgba(0,229,160,0.05);}
           <option value="Raleigh">Raleigh</option><option value="Wake Forest">Wake Forest</option><option value="Cary">Cary</option><option value="Garner">Garner</option><option value="Knightdale">Knightdale</option><option value="Clayton">Clayton</option><option value="Durham">Durham</option><option value="Outside Area">Outside Service Area</option>
         </select>
       </div>
+      <div class="fi"><label>Charge Gas?</label><select id="e_charge_gas"><option value="yes">Yes</option><option value="no">No — shared trip</option></select></div>
+      <div class="fi"><label>Charge Runner?</label><select id="e_charge_runner"><option value="yes">Yes</option><option value="no">No</option></select></div>
       <div class="fi" id="e_milesRow" style="display:none"><label>Round Trip Miles</label><input type="number" id="e_miles"></div>
       <div class="fi" id="e_runnerRow" style="display:none"><label>Runner Fee ($)</label><input type="number" id="e_runner_out"></div>
       <div class="fi full"><label>Car Cost ($)</label><input type="number" id="e_cost"></div>
@@ -834,7 +838,7 @@ async function processTextVoice(text, isCorrectionMode){
   }catch(err){ showStatus('Could not process. Fill in manually.','s-err'); }
 }
 
-function getCurrentFormValues(){ return {car:document.getElementById('f_car').value,vin:document.getElementById('f_vin').value,leadSource:document.getElementById('f_source').value,city:document.getElementById('f_city').value,carCost:document.getElementById('f_cost').value,checkAmount:document.getElementById('f_check').value,miles:document.getElementById('f_miles').value,runnerFee:document.getElementById('f_runner_out').value,bills:document.getElementById('f_bills').value,buckets:document.getElementById('f_buckets').value,refName:document.getElementById('f_ref_name').value,refFee:document.getElementById('f_ref_fee').value,otherExp:document.getElementById('f_other_exp')?.value||'',otherExpCategory:document.getElementById('f_other_exp_category')?.value||'Other',otherExpNote:document.getElementById('f_other_exp_note')?.value||'',date:document.getElementById('f_date').value,notes:document.getElementById('f_notes').value}; }
+function getCurrentFormValues(){ return {car:document.getElementById('f_car').value,vin:document.getElementById('f_vin').value,leadSource:document.getElementById('f_source').value,city:document.getElementById('f_city').value,carCost:document.getElementById('f_cost').value,checkAmount:document.getElementById('f_check').value,miles:document.getElementById('f_miles').value,runnerFee:document.getElementById('f_runner_out').value,bills:document.getElementById('f_bills').value,buckets:document.getElementById('f_buckets').value,refName:document.getElementById('f_ref_name').value,refFee:document.getElementById('f_ref_fee').value,otherExp:document.getElementById('f_other_exp')?.value||'',otherExpCategory:document.getElementById('f_other_exp_category')?.value||'Other',otherExpNote:document.getElementById('f_other_exp_note')?.value||'',chargeGas:document.getElementById('f_charge_gas')?.value||'yes',chargeRunner:document.getElementById('f_charge_runner')?.value||'yes',date:document.getElementById('f_date').value,notes:document.getElementById('f_notes').value}; }
 
 function fillForm(p){
   if(p.car) document.getElementById('f_car').value=p.car;
@@ -870,9 +874,11 @@ function fmtCents(n){ return '$'+(n||0).toLocaleString('en-US',{minimumFractionD
 // ── RECALC ──
 function recalc(){
   const city=document.getElementById('f_city').value,carCost=parseFloat(document.getElementById('f_cost').value)||0,checkAmt=parseFloat(document.getElementById('f_check').value)||0,refFee=parseFloat(document.getElementById('f_ref_fee').value)||0,otherExp=parseFloat(document.getElementById('f_other_exp')?.value)||0;
+  const chargeGas=(document.getElementById('f_charge_gas')?.value||'yes')==='yes';
+  const chargeRunner=(document.getElementById('f_charge_runner')?.value||'yes')==='yes';
   let runner=0,gas=0;
-  if(city==='Outside Area'){ const miles=parseFloat(document.getElementById('f_miles').value)||0; gas=Math.round(miles*MILEAGE_RATE); runner=parseFloat(document.getElementById('f_runner_out').value)||0; }
-  else if(CITIES[city]){ runner=CITIES[city].runner; gas=CITIES[city].gas; }
+  if(city==='Outside Area'){ const miles=parseFloat(document.getElementById('f_miles').value)||0; gas=chargeGas?Math.round(miles*MILEAGE_RATE):0; runner=chargeRunner?(parseFloat(document.getElementById('f_runner_out').value)||0):0; }
+  else if(CITIES[city]){ runner=chargeRunner?CITIES[city].runner:0; gas=chargeGas?CITIES[city].gas:0; }
   const totalExp=carCost+runner+gas+refFee+otherExp,profit=checkAmt-totalExp;
   document.getElementById('c_cost').textContent=fmt(carCost);
   document.getElementById('c_runner').textContent=fmt(runner);
@@ -1154,9 +1160,11 @@ async function addDeal(forceAllocationOverride=false){
   if(vin.length>0&&vin.length<6){ showStatus('VIN must be exactly 6 characters or leave blank.','s-err'); return; }
   const btn=document.getElementById('saveDealBtn'); btn.disabled=true; btn.textContent='Saving…';
   const carCost=parseFloat(document.getElementById('f_cost').value)||0,checkAmt=parseFloat(document.getElementById('f_check').value)||0,refFee=parseFloat(document.getElementById('f_ref_fee').value)||0,otherExp=parseFloat(document.getElementById('f_other_exp')?.value)||0;
+  const chargeGas=(document.getElementById('f_charge_gas')?.value||'yes')==='yes';
+  const chargeRunner=(document.getElementById('f_charge_runner')?.value||'yes')==='yes';
   let runner=0,gas=0,miles=0;
-  if(city==='Outside Area'){ miles=parseFloat(document.getElementById('f_miles').value)||0; gas=Math.round(miles*MILEAGE_RATE); runner=parseFloat(document.getElementById('f_runner_out').value)||0; }
-  else if(CITIES[city]){ runner=CITIES[city].runner; gas=CITIES[city].gas; }
+  if(city==='Outside Area'){ miles=parseFloat(document.getElementById('f_miles').value)||0; gas=chargeGas?Math.round(miles*MILEAGE_RATE):0; runner=chargeRunner?(parseFloat(document.getElementById('f_runner_out').value)||0):0; }
+  else if(CITIES[city]){ runner=chargeRunner?CITIES[city].runner:0; gas=chargeGas?CITIES[city].gas:0; }
   const totalExp=carCost+runner+gas+refFee+otherExp;
   const bucketAmt=roundMoney(document.getElementById('f_buckets').value);
   const dealDate=document.getElementById('f_date').value||new Date().toISOString().split('T')[0];
@@ -1212,6 +1220,8 @@ function resetForm(){
   ['f_car','f_vin','f_cost','f_check','f_bills','f_buckets','f_ref_name','f_ref_fee','f_other_exp','f_other_exp_note','f_notes','f_miles','f_runner_out'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   document.getElementById('f_city').value='';
   document.getElementById('f_source').value='';
+  const fGas=document.getElementById('f_charge_gas'); if(fGas) fGas.value='yes';
+  const fRunner=document.getElementById('f_charge_runner'); if(fRunner) fRunner.value='yes';
   document.getElementById('f_other_exp_category').value='Other';
   document.getElementById('f_date').value=new Date().toISOString().split('T')[0];
   document.getElementById('milesRow').style.display='none';
@@ -1302,6 +1312,8 @@ async function deleteDeal(id){
 function openEdit(id){
   const d=deals.find(x=>x.id===id); if(!d) return; editingId=id;
   document.getElementById('e_car').value=d.car||''; document.getElementById('e_vin').value=d.vin||''; document.getElementById('e_source').value=d.lead_source||'Other'; document.getElementById('e_city').value=d.city||''; document.getElementById('e_cost').value=d.car_cost||''; document.getElementById('e_check').value=d.check_amt||''; document.getElementById('e_bills').value=d.bills||''; document.getElementById('e_buckets').value=d.buckets||''; document.getElementById('e_ref_name').value=d.ref_name||''; document.getElementById('e_ref_fee').value=d.ref_fee||''; document.getElementById('e_other_exp').value=d.other_exp||''; document.getElementById('e_other_exp_category').value=d.other_exp_category||'Other'; document.getElementById('e_other_exp_note').value=d.other_exp_note||''; document.getElementById('e_date').value=d.date||''; document.getElementById('e_notes').value=d.notes||'';
+  const eGas=document.getElementById('e_charge_gas'); if(eGas) eGas.value=(roundMoney(d.gas)>0?'yes':'no');
+  const eRunner=document.getElementById('e_charge_runner'); if(eRunner) eRunner.value=(roundMoney(d.runner)>0?'yes':'no');
   editCityChanged(); if(d.city==='Outside Area'){ document.getElementById('e_miles').value=d.miles||''; document.getElementById('e_runner_out').value=d.runner||''; }
   document.getElementById('editModal').classList.add('show');
 }
@@ -1310,9 +1322,11 @@ async function saveEdit(forceAllocationOverride=false){
   const idx=deals.findIndex(d=>d.id===editingId); if(idx<0) return;
   const oldDeal={...deals[idx]};
   const city=document.getElementById('e_city').value,carCost=parseFloat(document.getElementById('e_cost').value)||0,checkAmt=parseFloat(document.getElementById('e_check').value)||0,refFee=parseFloat(document.getElementById('e_ref_fee').value)||0,otherExp=parseFloat(document.getElementById('e_other_exp')?.value)||0;
+  const chargeGas=(document.getElementById('e_charge_gas')?.value||'yes')==='yes';
+  const chargeRunner=(document.getElementById('e_charge_runner')?.value||'yes')==='yes';
   let runner=0,gas=0,miles=0;
-  if(city==='Outside Area'){ miles=parseFloat(document.getElementById('e_miles').value)||0; gas=Math.round(miles*MILEAGE_RATE); runner=parseFloat(document.getElementById('e_runner_out').value)||0; }
-  else if(CITIES[city]){ runner=CITIES[city].runner; gas=CITIES[city].gas; }
+  if(city==='Outside Area'){ miles=parseFloat(document.getElementById('e_miles').value)||0; gas=chargeGas?Math.round(miles*MILEAGE_RATE):0; runner=chargeRunner?(parseFloat(document.getElementById('e_runner_out').value)||0):0; }
+  else if(CITIES[city]){ runner=chargeRunner?CITIES[city].runner:0; gas=chargeGas?CITIES[city].gas:0; }
   const totalExp=carCost+runner+gas+refFee+otherExp;
   const newBucketAmt=roundMoney(document.getElementById('e_buckets').value);
   const oldBucketAmt=roundMoney(oldDeal.buckets);
