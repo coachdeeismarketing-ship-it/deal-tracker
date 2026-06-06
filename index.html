@@ -6,6 +6,7 @@
 <title>Deal Tracker</title>
 <!-- VERSION: shared-trip-expense-controls -->
 <!-- Patch: all successful saves now use the fixed Auto Audit popup instead of the top-of-form status box. -->
+<!-- Phase 1 Bucket wording: Deal Bucket Allocations vs Actual Bucket Cash labels. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
@@ -359,7 +360,7 @@ tr.hl{background:rgba(0,229,160,0.05);}
     <div class="tc"><div class="tc-l">Referrals</div><div class="tc-v" id="t_ref" style="color:var(--text)">$0</div></div>
     <div class="tc"><div class="tc-l">Expenses</div><div class="tc-v" id="t_exp" style="color:var(--orange)">$0</div></div>
     <div class="tc"><div class="tc-l">Bills</div><div class="tc-v" id="t_bills" style="color:var(--blue)">$0</div></div>
-    <div class="tc"><div class="tc-l">Buckets</div><div class="tc-v" id="t_buckets" style="color:var(--blue)">$0</div></div>
+    <div class="tc"><div class="tc-l">Deal Bucket Alloc.</div><div class="tc-v" id="t_buckets" style="color:var(--blue)">$0</div></div>
   </div>
 
   <div class="card">
@@ -1138,8 +1139,8 @@ function showAutoAuditResult(actionLabel){
       <div>Deals checked: <strong>${result.dealChecked}</strong> · Bucket fail: <strong>${result.dealProblems.length}</strong> · Expense math fail: <strong>${result.expenseProblems.length}</strong> · Allocation fail: <strong>${result.allocationProblems.length}</strong> · Allocation warnings: <strong>${result.allocationWarnings.length}</strong></div>
       ${result.allocationProblems.length?'<div style="color:var(--red);font-weight:700;margin-top:6px;">Allocation problem(s):</div>'+result.allocationProblems.slice(0,3).map(describeAllocationIssue).join(''):''}
       ${result.allocationWarnings.length?'<div style="color:var(--orange);font-weight:700;margin-top:6px;">Intentional allocation warning(s):</div>'+result.allocationWarnings.slice(0,3).map(describeAllocationIssue).join(''):''}
-      <div>Bucket totals: <strong>${fmt(result.totalBuckets)}</strong> expected · <strong>${fmt(result.totalPosted)}</strong> posted</div>
-      <div>Envelope balances: <strong>${fmt(result.totalEnvelopeBalances)}</strong> · History: <strong>${fmt(result.totalHistory)}</strong></div>
+      <div>Deal Bucket Allocations: <strong>${fmt(result.totalBuckets)}</strong> expected · <strong>${fmt(result.totalPosted)}</strong> posted</div>
+      <div>Actual Bucket Cash: <strong>${fmt(result.totalEnvelopeBalances)}</strong> · History: <strong>${fmt(result.totalHistory)}</strong></div>
       <div style="font-size:0.72rem;margin-top:4px;">${now}</div>
     </div>`;
   return result;
@@ -1367,7 +1368,7 @@ async function saveEdit(forceAllocationOverride=false){
 function renderBuckets(){
   const totalBal=envelopes.reduce((s,e)=>s+e.balance,0),totalGoal=envelopes.filter(e=>e.goal>0).reduce((s,e)=>s+e.goal,0),doneCount=envelopes.filter(e=>e.goal>0&&e.balance>=e.goal).length;
   document.getElementById('bucketSummaryGrid').innerHTML=`
-    <div class="tc"><div class="tc-l">Total in Buckets</div><div class="tc-v" style="color:var(--purple)">${fmt(totalBal)}</div></div>
+    <div class="tc"><div class="tc-l">Actual Bucket Cash</div><div class="tc-v" style="color:var(--purple)">${fmt(totalBal)}</div></div>
     <div class="tc"><div class="tc-l">Total Goal</div><div class="tc-v" style="color:var(--orange)">${fmt(totalGoal)}</div></div>
     <div class="tc"><div class="tc-l">Goals Done</div><div class="tc-v" style="color:var(--green)">${doneCount}</div></div>`;
 
@@ -1625,8 +1626,8 @@ function runBucketAudit(){
   let html=`<div style="padding:11px;border-radius:10px;border:1px solid ${allPass?'var(--green)':'var(--red)'};background:${allPass?'#082a18':'#2a0810'};color:${allPass?'var(--green)':'var(--red)'};font-weight:700;margin-bottom:10px;">${allPass?'✅ PASS: All bucket records match.':'⚠️ FAIL: Bucket records need attention.'}</div>`;
   html+=`<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:10px;">
     <div>Deals checked: <strong>${dealChecked}</strong> · Deal pass: <strong>${dealPass}</strong> · Deal fail: <strong>${dealProblems.length}</strong></div>
-    <div>Total deal buckets: <strong>${fmt(totalBuckets)}</strong> · Posted to history: <strong>${fmt(totalPosted)}</strong></div>
-    <div>Envelope balances: <strong>${fmt(totalEnvelopeBalances)}</strong> · All history: <strong>${fmt(totalHistory)}</strong></div>
+    <div>Deal Bucket Allocations: <strong>${fmt(totalBuckets)}</strong> · Posted to history: <strong>${fmt(totalPosted)}</strong></div>
+    <div>Actual Bucket Cash: <strong>${fmt(totalEnvelopeBalances)}</strong> · History total: <strong>${fmt(totalHistory)}</strong></div>
   </div>`;
 
   if(dealProblems.length){
@@ -1638,15 +1639,15 @@ function runBucketAudit(){
   }
 
   if(envProblems.length){
-    html+='<div style="margin:10px 0 8px;font-weight:700;color:var(--red);">Envelope balance problems</div>';
+    html+='<div style="margin:10px 0 8px;font-weight:700;color:var(--red);">Actual Bucket Cash problems</div>';
     html+=envProblems.map(x=>`<div style="background:var(--card);border:1px solid var(--border);border-radius:9px;padding:9px;margin-bottom:7px;">
       <div><strong>${x.env.name}</strong></div>
-      <div>Balance shows: <strong>${fmt(x.balance)}</strong> · History total: <strong>${fmt(x.historyTotal)}</strong> · Difference: <strong>${fmt(x.balance-x.historyTotal)}</strong></div>
+      <div>Actual Bucket Cash shows: <strong>${fmt(x.balance)}</strong> · History total: <strong>${fmt(x.historyTotal)}</strong> · Difference: <strong>${fmt(x.balance-x.historyTotal)}</strong></div>
     </div>`).join('');
   }
 
   if(allPass){
-    html+='<div style="color:var(--muted);font-size:0.78rem;">This means every deal with bucket money has matching envelope-history records, and every envelope balance matches its history total.</div>';
+    html+='<div style="color:var(--muted);font-size:0.78rem;">This means every deal with bucket money has matching envelope-history records, and Actual Bucket Cash matches its history total.</div>';
   }
   box.innerHTML=html;
 }
