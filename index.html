@@ -8,7 +8,6 @@
 <!-- Patch: all successful saves now use the fixed Auto Audit popup instead of the top-of-form status box. -->
 <!-- Phase 1 Bucket wording: Deal Bucket Allocations vs Actual Bucket Cash labels. -->
 <!-- Patch 2A-1: Verify Bucket button placeholder only. No money/database logic. -->
-<!-- Phase 2B-1: Verify cash counted fields only. No saving/database/balance logic. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
@@ -605,22 +604,12 @@ tr.hl{background:rgba(0,229,160,0.05);}
 
 
 
-<!-- VERIFY BUCKET MODAL — Phase 2B-1 fields only, no saving/database/balance logic -->
+<!-- VERIFY BUCKET PLACEHOLDER MODAL -->
 <div class="modal-overlay" id="verifyPlaceholderModal">
   <div class="modal">
     <div class="modal-title">✅ Verify Bucket</div>
-    <div id="verifyBucketName" style="font-family:'Syne',sans-serif;font-size:0.95rem;font-weight:800;margin-bottom:12px;color:var(--text);"></div>
-    <div class="calc-box" style="display:block;margin-bottom:13px;">
-      <div class="calc-row"><span class="calc-label">Current Actual Bucket Cash</span><span id="verifyCurrentCash">$0</span></div>
-      <div class="calc-row"><span class="calc-label">Actual Cash Counted</span><span id="verifyCountedDisplay">$0</span></div>
-      <div class="calc-row"><span>Difference</span><span id="verifyDifference">$0</span></div>
-    </div>
-    <div class="fg">
-      <div class="fi full"><label>Actual Cash Counted ($)</label><input type="number" id="verifyCountedInput" placeholder="Enter what you physically counted" oninput="updateVerifyDifference()"></div>
-      <div class="fi full"><label>Verification Note</label><textarea id="verifyNoteInput" placeholder="Optional note. Example: counted envelope, possible borrowed cash, checking later…"></textarea></div>
-    </div>
-    <p style="font-size:0.78rem;color:var(--muted);line-height:1.45;margin-top:4px;">Phase 2B-1 test only: this calculates the difference, but it does not save, adjust money, or write to the database yet.</p>
-    <div class="modal-btns"><button class="m-save" onclick="closeVerifyPlaceholder()">Close</button></div>
+    <div id="verifyPlaceholderBody" style="font-size:0.86rem;color:var(--muted);line-height:1.55;"></div>
+    <div class="modal-btns"><button class="m-save" onclick="closeVerifyPlaceholder()">Got It</button></div>
   </div>
 </div>
 
@@ -1433,34 +1422,13 @@ function renderBuckets(){
 function toggleHistory(id){ document.getElementById(id).classList.toggle('open'); }
 
 
-let verifyEnvId=null;
 function openVerifyPlaceholder(envId){
-  verifyEnvId=envId;
   const env=envelopes.find(e=>e.id===envId);
-  const current=env?roundMoney(env.balance):0;
-  document.getElementById('verifyBucketName').textContent=env?env.name:'Bucket';
-  document.getElementById('verifyCurrentCash').textContent=fmt(current);
-  document.getElementById('verifyCountedInput').value='';
-  document.getElementById('verifyNoteInput').value='';
-  document.getElementById('verifyCountedDisplay').textContent=fmt(0);
-  document.getElementById('verifyDifference').textContent=fmt(0);
-  document.getElementById('verifyDifference').style.color='var(--text)';
+  const body=document.getElementById('verifyPlaceholderBody');
+  body.innerHTML=`<p><strong>${env?env.name:'Bucket'}</strong></p><p>This is the placeholder for bucket verification.</p><p>No money was changed. No database record was saved.</p><p>Next patch will add actual cash counted, difference, note, and action options.</p>`;
   document.getElementById('verifyPlaceholderModal').classList.add('show');
 }
-function updateVerifyDifference(){
-  const env=envelopes.find(e=>e.id===verifyEnvId);
-  const current=env?roundMoney(env.balance):0;
-  const counted=roundMoney(document.getElementById('verifyCountedInput').value);
-  const diff=counted-current;
-  document.getElementById('verifyCountedDisplay').textContent=fmt(counted);
-  const diffEl=document.getElementById('verifyDifference');
-  diffEl.textContent=(diff>0?'+':'')+fmt(diff);
-  diffEl.style.color=diff===0?'var(--green)':(diff>0?'var(--blue)':'var(--red)');
-}
-function closeVerifyPlaceholder(){
-  document.getElementById('verifyPlaceholderModal').classList.remove('show');
-  verifyEnvId=null;
-}
+function closeVerifyPlaceholder(){ document.getElementById('verifyPlaceholderModal').classList.remove('show'); }
 
 // ── DIRECT DEPOSIT ──
 function openDeposit(envId){ depositEnvId=envId; const env=envelopes.find(e=>e.id===envId); document.getElementById('depositEnvName').textContent='Adding directly to: '+env.name; document.getElementById('dep_amount').value=''; document.getElementById('dep_note').value=''; document.getElementById('dep_date').value=new Date().toISOString().split('T')[0]; document.getElementById('depositModal').classList.add('show'); }
