@@ -9,6 +9,7 @@
 <!-- Phase 1 Bucket wording: Deal Bucket Allocations vs Actual Bucket Cash labels. -->
 <!-- Patch 2A-1: Verify Bucket button placeholder only. No money/database logic. -->
 <!-- Phase 2B-1: Verify cash counted fields only. No saving/database/balance logic. -->
+<!-- FIX-2B1A: Blank verify counted cash shows dashes until user enters a value. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
@@ -1442,18 +1443,27 @@ function openVerifyPlaceholder(envId){
   document.getElementById('verifyCurrentCash').textContent=fmt(current);
   document.getElementById('verifyCountedInput').value='';
   document.getElementById('verifyNoteInput').value='';
-  document.getElementById('verifyCountedDisplay').textContent=fmt(0);
-  document.getElementById('verifyDifference').textContent=fmt(0);
-  document.getElementById('verifyDifference').style.color='var(--text)';
+  document.getElementById('verifyCountedDisplay').textContent='—';
+  document.getElementById('verifyDifference').textContent='—';
+  document.getElementById('verifyDifference').style.color='var(--muted)';
   document.getElementById('verifyPlaceholderModal').classList.add('show');
 }
 function updateVerifyDifference(){
   const env=envelopes.find(e=>e.id===verifyEnvId);
   const current=env?roundMoney(env.balance):0;
-  const counted=roundMoney(document.getElementById('verifyCountedInput').value);
+  const raw=document.getElementById('verifyCountedInput').value;
+  const diffEl=document.getElementById('verifyDifference');
+
+  if(raw===''){
+    document.getElementById('verifyCountedDisplay').textContent='—';
+    diffEl.textContent='—';
+    diffEl.style.color='var(--muted)';
+    return;
+  }
+
+  const counted=roundMoney(raw);
   const diff=counted-current;
   document.getElementById('verifyCountedDisplay').textContent=fmt(counted);
-  const diffEl=document.getElementById('verifyDifference');
   diffEl.textContent=(diff>0?'+':'')+fmt(diff);
   diffEl.style.color=diff===0?'var(--green)':(diff>0?'var(--blue)':'var(--red)');
 }
