@@ -10,6 +10,7 @@
 <!-- Patch 2A-1: Verify Bucket button placeholder only. No money/database logic. -->
 <!-- Phase 2B-1: Verify cash counted fields only. No saving/database/balance logic. -->
 <!-- FIX-2B1A: Blank verify counted cash shows dashes until user enters a value. -->
+<!-- Phase 2B-2: Save bucket verification records to history. No balance changes. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
@@ -620,8 +621,8 @@ tr.hl{background:rgba(0,229,160,0.05);}
       <div class="fi full"><label>Actual Cash Counted ($)</label><input type="number" id="verifyCountedInput" placeholder="Enter what you physically counted" oninput="updateVerifyDifference()"></div>
       <div class="fi full"><label>Verification Note</label><textarea id="verifyNoteInput" placeholder="Optional note. Example: counted envelope, possible borrowed cash, checking later…"></textarea></div>
     </div>
-    <p style="font-size:0.78rem;color:var(--muted);line-height:1.45;margin-top:4px;">Phase 2B-1 test only: this calculates the difference, but it does not save, adjust money, or write to the database yet.</p>
-    <div class="modal-btns"><button class="m-save" onclick="closeVerifyPlaceholder()">Close</button></div>
+    <p style="font-size:0.78rem;color:var(--muted);line-height:1.45;margin-top:4px;">Phase 2B-2: this saves a verification record only. It does not adjust bucket money or change balances yet.</p>
+    <div class="modal-btns"><button class="m-cancel" onclick="closeVerifyPlaceholder()">Cancel</button><button class="m-save" onclick="saveVerificationRecord()">Save Verification</button></div>
   </div>
 </div>
 
@@ -1402,6 +1403,9 @@ function renderBuckets(){
     const pctFill=env.goal>0?Math.min(100,(env.balance/env.goal*100)):null;
     const hist=envHistory.filter(h=>h.envelope_id===env.id);
     const histHTML=hist.length?hist.slice(0,20).map(h=>{
+      if(h.type==='verification'){
+        return renderVerificationHistoryItem(h);
+      }
       const btns=h.type==='direct'?`<div style="display:flex;gap:4px;margin-left:8px;"><button onclick="editDeposit('${env.id}',${h.id})" style="background:rgba(155,125,255,0.15);border:1px solid var(--purple);color:var(--purple);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">✏️</button><button onclick="deleteDeposit('${env.id}',${h.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">🗑</button></div>`:'';
       return `<div class="history-item"><div><div>${h.source}</div><div class="h-source">${h.type==='deal'?'From Deal':'Direct Deposit'}</div></div><div style="text-align:right;display:flex;align-items:center;"><div><div class="h-amt">+${fmt(h.amount)}</div><div class="h-date">${h.date}</div></div>${btns}</div></div>`;
     }).join(''):'<div style="color:var(--muted);font-size:0.78rem;padding:8px 0;font-style:italic">No history yet</div>';
@@ -1432,6 +1436,34 @@ function renderBuckets(){
 }
 
 function toggleHistory(id){ document.getElementById(id).classList.toggle('open'); }
+
+function parseVerificationSource(source){
+  const result={status:'Verification',expected:0,counted:0,difference:0,note:''};
+  if(!source) return result;
+  source.split('|').map(p=>p.trim()).forEach(part=>{
+    const idx=part.indexOf(':');
+    if(idx<0) return;
+    const key=part.slice(0,idx).trim().toLowerCase();
+    const val=part.slice(idx+1).trim();
+    if(key==='status') result.status=val;
+    if(key==='expected') result.expected=roundMoney(val.replace(/[^0-9.-]/g,''));
+    if(key==='counted') result.counted=roundMoney(val.replace(/[^0-9.-]/g,''));
+    if(key==='difference') result.difference=roundMoney(val.replace(/[^0-9.-]/g,''));
+    if(key==='note') result.note=val;
+  });
+  return result;
+}
+
+function renderVerificationHistoryItem(h){
+  const v=parseVerificationSource(h.source);
+  const diffText=(v.difference>0?'+':'')+fmt(v.difference);
+  const diffColor=v.difference===0?'var(--green)':(v.difference>0?'var(--blue)':'var(--red)');
+  return `<div class="history-item"><div style="width:100%;"><div style="display:flex;justify-content:space-between;gap:10px;"><div><strong>Verification</strong> · ${v.status}</div><div class="h-date">${h.date}</div></div><div class="h-source" style="margin-top:4px;line-height:1.45;">Expected: <strong>${fmt(v.expected)}</strong> · Counted: <strong>${fmt(v.counted)}</strong> · Difference: <strong style="color:${diffColor}">${diffText}</strong>${v.note?`<br>Note: ${escapeHTML(v.note)}`:''}</div></div></div>`;
+}
+
+function escapeHTML(str){
+  return String(str||'').replace(/[&<>'"]/g, ch=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+}
 
 
 let verifyEnvId=null;
@@ -1467,6 +1499,32 @@ function updateVerifyDifference(){
   diffEl.textContent=(diff>0?'+':'')+fmt(diff);
   diffEl.style.color=diff===0?'var(--green)':(diff>0?'var(--blue)':'var(--red)');
 }
+async function saveVerificationRecord(){
+  const env=envelopes.find(e=>e.id===verifyEnvId);
+  if(!env){ alert('Bucket not found.'); return; }
+  const raw=document.getElementById('verifyCountedInput').value;
+  if(raw===''){
+    alert('Enter the actual cash counted before saving the verification.');
+    return;
+  }
+  const expected=roundMoney(env.balance);
+  const counted=roundMoney(raw);
+  const difference=counted-expected;
+  const status=difference===0?'Verified':(difference>0?'Over':'Short');
+  const note=(document.getElementById('verifyNoteInput').value||'').trim();
+  const date=new Date().toISOString().split('T')[0];
+  const source=`Status: ${status} | Expected: ${fmt(expected)} | Counted: ${fmt(counted)} | Difference: ${(difference>0?'+':'')+fmt(difference)} | Note: ${note}`;
+  try{
+    const histItem={envelope_id:env.id,date,amount:0,source,type:'verification'};
+    await checkedInsertHistory(histItem,'Bucket verification record');
+    closeVerifyPlaceholder();
+    renderBuckets();
+    showAuditReminder(`✅ Verification saved for ${env.name}. No bucket balances were changed.`);
+  }catch(err){
+    showStatus('Error saving verification: '+err.message,'s-err');
+  }
+}
+
 function closeVerifyPlaceholder(){
   document.getElementById('verifyPlaceholderModal').classList.remove('show');
   verifyEnvId=null;
