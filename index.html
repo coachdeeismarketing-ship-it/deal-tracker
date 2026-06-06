@@ -10,6 +10,7 @@
 <!-- Patch 2A-1: Verify Bucket button placeholder only. No money/database logic. -->
 <!-- Phase 2B-1: Verify cash counted fields only. No saving/database/balance logic. -->
 <!-- FIX-2B1A: Blank verify counted cash shows dashes until user enters a value. -->
+<!-- Phase 2B-2A: Verification save confirms matching history record before success message. -->
 <!-- Phase 2B-2: Save bucket verification records to history. No balance changes. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -1516,10 +1517,20 @@ async function saveVerificationRecord(){
   const source=`Status: ${status} | Expected: ${fmt(expected)} | Counted: ${fmt(counted)} | Difference: ${(difference>0?'+':'')+fmt(difference)} | Note: ${note}`;
   try{
     const histItem={envelope_id:env.id,date,amount:0,source,type:'verification'};
-    await checkedInsertHistory(histItem,'Bucket verification record');
+    const saved=await checkedInsertHistory(histItem,'Bucket verification record');
+
+    // Phase 2B-2A safety check: confirm the verification record exists in history before showing success.
+    const confirmed=!!(saved&&saved.id&&envHistory.some(h=>h.id===saved.id&&h.envelope_id===env.id&&h.type==='verification'));
+
     closeVerifyPlaceholder();
     renderBuckets();
-    showAuditReminder(`✅ Verification saved for ${env.name}. No bucket balances were changed.`);
+
+    const diffText=(difference>0?'+':'')+fmt(difference);
+    if(confirmed){
+      showAuditReminder(`✅ Verification Save Confirmed for ${env.name}. Expected: ${fmt(expected)} · Counted: ${fmt(counted)} · Difference: ${diffText} · Status: ${status}. History record confirmed. No bucket balances were changed.`);
+    }else{
+      showAutoAuditResult(`Verification may have saved, but the history confirmation failed for ${env.name}. Please check bucket history before relying on this record.`, 'warn');
+    }
   }catch(err){
     showStatus('Error saving verification: '+err.message,'s-err');
   }
