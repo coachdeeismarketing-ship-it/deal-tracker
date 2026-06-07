@@ -11,6 +11,7 @@
 <!-- Phase 2B-1: Verify cash counted fields only. No saving/database/balance logic. -->
 <!-- FIX-2B1A: Blank verify counted cash shows dashes until user enters a value. -->
 <!-- Phase 2B-2A: Verification save confirms matching history record before success message. -->
+<!-- Phase 2B-3: Discrepancy resolution adds Check Later and Adjust Bucket actions. -->
 <!-- Phase 2B-2: Save bucket verification records to history. No balance changes. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -622,8 +623,8 @@ tr.hl{background:rgba(0,229,160,0.05);}
       <div class="fi full"><label>Actual Cash Counted ($)</label><input type="number" id="verifyCountedInput" placeholder="Enter what you physically counted" oninput="updateVerifyDifference()"></div>
       <div class="fi full"><label>Verification Note</label><textarea id="verifyNoteInput" placeholder="Optional note. Example: counted envelope, possible borrowed cash, checking later…"></textarea></div>
     </div>
-    <p style="font-size:0.78rem;color:var(--muted);line-height:1.45;margin-top:4px;">Phase 2B-2: this saves a verification record only. It does not adjust bucket money or change balances yet.</p>
-    <div class="modal-btns"><button class="m-cancel" onclick="closeVerifyPlaceholder()">Cancel</button><button class="m-save" onclick="saveVerificationRecord()">Save Verification</button></div>
+    <p style="font-size:0.78rem;color:var(--muted);line-height:1.45;margin-top:4px;" id="verifyPhaseMessage">Phase 2B-3: if the count matches, save verification. If it does not match, choose Check Later or Adjust Bucket.</p>
+    <div class="modal-btns" id="verifyActionButtons"><button class="m-cancel" onclick="closeVerifyPlaceholder()">Cancel</button><button class="m-cancel" id="verifyCheckLaterBtn" style="display:none;color:var(--gold);border-color:rgba(245,200,66,0.45);" onclick="saveVerificationRecord('check_later')">Check Later</button><button class="m-danger" id="verifyAdjustBtn" style="display:none" onclick="saveVerificationRecord('adjust')">Adjust Bucket</button><button class="m-save" id="verifySaveBtn" onclick="saveVerificationRecord('verified')">Save Verification</button></div>
   </div>
 </div>
 
@@ -1459,7 +1460,9 @@ function renderVerificationHistoryItem(h){
   const v=parseVerificationSource(h.source);
   const diffText=(v.difference>0?'+':'')+fmt(v.difference);
   const diffColor=v.difference===0?'var(--green)':(v.difference>0?'var(--blue)':'var(--red)');
-  return `<div class="history-item"><div style="width:100%;"><div style="display:flex;justify-content:space-between;gap:10px;"><div><strong>Verification</strong> · ${v.status}</div><div class="h-date">${h.date}</div></div><div class="h-source" style="margin-top:4px;line-height:1.45;">Expected: <strong>${fmt(v.expected)}</strong> · Counted: <strong>${fmt(v.counted)}</strong> · Difference: <strong style="color:${diffColor}">${diffText}</strong>${v.note?`<br>Note: ${escapeHTML(v.note)}`:''}</div></div></div>`;
+  const adjustmentLine=v.status==='Adjusted'?`<br>Adjustment posted: <strong style="color:${diffColor}">${diffText}</strong>`:'';
+  const pendingLine=v.status==='Pending Investigation'?`<br><span style="color:var(--gold);font-weight:700;">Check Later — balance unchanged</span>`:'';
+  return `<div class="history-item"><div style="width:100%;"><div style="display:flex;justify-content:space-between;gap:10px;"><div><strong>Verification</strong> · ${v.status}</div><div class="h-date">${h.date}</div></div><div class="h-source" style="margin-top:4px;line-height:1.45;">Expected: <strong>${fmt(v.expected)}</strong> · Counted: <strong>${fmt(v.counted)}</strong> · Difference: <strong style="color:${diffColor}">${diffText}</strong>${adjustmentLine}${pendingLine}${v.note?`<br>Note: ${escapeHTML(v.note)}`:''}</div></div></div>`;
 }
 
 function escapeHTML(str){
@@ -1468,6 +1471,40 @@ function escapeHTML(str){
 
 
 let verifyEnvId=null;
+function updateVerifyActionButtons(){
+  const env=envelopes.find(e=>e.id===verifyEnvId);
+  const raw=document.getElementById('verifyCountedInput')?.value||'';
+  const saveBtn=document.getElementById('verifySaveBtn');
+  const checkBtn=document.getElementById('verifyCheckLaterBtn');
+  const adjustBtn=document.getElementById('verifyAdjustBtn');
+  const msg=document.getElementById('verifyPhaseMessage');
+  if(!saveBtn||!checkBtn||!adjustBtn) return;
+  if(raw===''){
+    saveBtn.style.display='inline-block';
+    saveBtn.disabled=true;
+    checkBtn.style.display='none';
+    adjustBtn.style.display='none';
+    if(msg) msg.textContent='Enter the cash you physically counted. The app will show whether the bucket matches, is short, or is over.';
+    return;
+  }
+  saveBtn.disabled=false;
+  const expected=env?roundMoney(env.balance):0;
+  const counted=roundMoney(raw);
+  const difference=counted-expected;
+  if(difference===0){
+    saveBtn.style.display='inline-block';
+    saveBtn.textContent='Save Verification';
+    checkBtn.style.display='none';
+    adjustBtn.style.display='none';
+    if(msg) msg.textContent='Amounts match. Save Verification records the count and does not change bucket money.';
+  }else{
+    saveBtn.style.display='none';
+    checkBtn.style.display='inline-block';
+    adjustBtn.style.display='inline-block';
+    adjustBtn.textContent='Adjust Bucket';
+    if(msg) msg.textContent='Discrepancy found. Check Later keeps the balance unchanged. Adjust Bucket changes the bucket balance to the cash counted.';
+  }
+}
 function openVerifyPlaceholder(envId){
   verifyEnvId=envId;
   const env=envelopes.find(e=>e.id===envId);
@@ -1479,6 +1516,7 @@ function openVerifyPlaceholder(envId){
   document.getElementById('verifyCountedDisplay').textContent='—';
   document.getElementById('verifyDifference').textContent='—';
   document.getElementById('verifyDifference').style.color='var(--muted)';
+  updateVerifyActionButtons();
   document.getElementById('verifyPlaceholderModal').classList.add('show');
 }
 function updateVerifyDifference(){
@@ -1491,6 +1529,7 @@ function updateVerifyDifference(){
     document.getElementById('verifyCountedDisplay').textContent='—';
     diffEl.textContent='—';
     diffEl.style.color='var(--muted)';
+    updateVerifyActionButtons();
     return;
   }
 
@@ -1499,8 +1538,9 @@ function updateVerifyDifference(){
   document.getElementById('verifyCountedDisplay').textContent=fmt(counted);
   diffEl.textContent=(diff>0?'+':'')+fmt(diff);
   diffEl.style.color=diff===0?'var(--green)':(diff>0?'var(--blue)':'var(--red)');
+  updateVerifyActionButtons();
 }
-async function saveVerificationRecord(){
+async function saveVerificationRecord(action='verified'){
   const env=envelopes.find(e=>e.id===verifyEnvId);
   if(!env){ alert('Bucket not found.'); return; }
   const raw=document.getElementById('verifyCountedInput').value;
@@ -1511,28 +1551,64 @@ async function saveVerificationRecord(){
   const expected=roundMoney(env.balance);
   const counted=roundMoney(raw);
   const difference=counted-expected;
-  const status=difference===0?'Verified':(difference>0?'Over':'Short');
   const note=(document.getElementById('verifyNoteInput').value||'').trim();
   const date=new Date().toISOString().split('T')[0];
+
+  let status='Verified';
+  let historyAmount=0;
+  let balanceChanged=false;
+  let beforeBalance=expected;
+  let afterBalance=expected;
+
+  if(difference===0){
+    status='Verified';
+    historyAmount=0;
+  }else if(action==='check_later'){
+    status='Pending Investigation';
+    historyAmount=0;
+  }else if(action==='adjust'){
+    status='Adjusted';
+    historyAmount=difference;
+    balanceChanged=true;
+    afterBalance=counted;
+  }else{
+    alert('This bucket does not match. Choose Check Later or Adjust Bucket.');
+    return;
+  }
+
   const source=`Status: ${status} | Expected: ${fmt(expected)} | Counted: ${fmt(counted)} | Difference: ${(difference>0?'+':'')+fmt(difference)} | Note: ${note}`;
   try{
-    const histItem={envelope_id:env.id,date,amount:0,source,type:'verification'};
+    let balanceConfirmed=true;
+    if(balanceChanged){
+      env.balance=roundMoney(afterBalance);
+      await checkedUpsertEnvelope(env,'Verification adjustment balance update');
+      balanceConfirmed=roundMoney(env.balance)===roundMoney(afterBalance);
+    }
+
+    const histItem={envelope_id:env.id,date,amount:historyAmount,source,type:'verification'};
     const saved=await checkedInsertHistory(histItem,'Bucket verification record');
 
-    // Phase 2B-2A safety check: confirm the verification record exists in history before showing success.
-    const confirmed=!!(saved&&saved.id&&envHistory.some(h=>h.id===saved.id&&h.envelope_id===env.id&&h.type==='verification'));
+    // Phase 2B-3 safety check: confirm the verification record exists in history before showing success.
+    const historyConfirmed=!!(saved&&saved.id&&envHistory.some(h=>h.id===saved.id&&h.envelope_id===env.id&&h.type==='verification'));
 
     closeVerifyPlaceholder();
     renderBuckets();
 
     const diffText=(difference>0?'+':'')+fmt(difference);
-    if(confirmed){
-      showAuditReminder(`✅ Verification Save Confirmed for ${env.name}. Expected: ${fmt(expected)} · Counted: ${fmt(counted)} · Difference: ${diffText} · Status: ${status}. History record confirmed. No bucket balances were changed.`);
+    if(historyConfirmed&&balanceConfirmed){
+      if(status==='Verified'){
+        showAuditReminder(`✅ Verification Save Confirmed for ${env.name}. Expected: ${fmt(expected)} · Counted: ${fmt(counted)} · Difference: ${diffText} · Status: ${status}. History record confirmed. No bucket balances were changed.`);
+      }else if(status==='Pending Investigation'){
+        showAuditReminder(`⏳ Verification saved as Check Later for ${env.name}. Expected: ${fmt(expected)} · Counted: ${fmt(counted)} · Difference: ${diffText} · Status: Pending Investigation. History record confirmed. Bucket balance stayed ${fmt(expected)}.`);
+      }else{
+        showAuditReminder(`🔧 Bucket Adjustment Confirmed for ${env.name}. Expected: ${fmt(beforeBalance)} · Counted: ${fmt(counted)} · Difference: ${diffText} · Status: Adjusted. History record confirmed. Bucket balance changed from ${fmt(beforeBalance)} to ${fmt(afterBalance)}.`);
+      }
     }else{
-      showAutoAuditResult(`Verification may have saved, but the history confirmation failed for ${env.name}. Please check bucket history before relying on this record.`, 'warn');
+      showAutoAuditResult(`Verification may have saved, but confirmation failed for ${env.name}. Please check bucket history and balance before relying on this record.`, 'warn');
     }
   }catch(err){
     showStatus('Error saving verification: '+err.message,'s-err');
+    await loadAllData();
   }
 }
 
