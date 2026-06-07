@@ -12,6 +12,7 @@
 <!-- FIX-2B1A: Blank verify counted cash shows dashes until user enters a value. -->
 <!-- Phase 2B-2A: Verification save confirms matching history record before success message. -->
 <!-- Phase 2B-3: Discrepancy resolution adds Check Later and Adjust Bucket actions. -->
+<!-- Phase 2B-3A: Delete verification history safely; adjusted rows reverse bucket balance without changing deals. -->
 <!-- Phase 2B-2: Save bucket verification records to history. No balance changes. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -1462,7 +1463,8 @@ function renderVerificationHistoryItem(h){
   const diffColor=v.difference===0?'var(--green)':(v.difference>0?'var(--blue)':'var(--red)');
   const adjustmentLine=v.status==='Adjusted'?`<br>Adjustment posted: <strong style="color:${diffColor}">${diffText}</strong>`:'';
   const pendingLine=v.status==='Pending Investigation'?`<br><span style="color:var(--gold);font-weight:700;">Check Later — balance unchanged</span>`:'';
-  return `<div class="history-item"><div style="width:100%;"><div style="display:flex;justify-content:space-between;gap:10px;"><div><strong>Verification</strong> · ${v.status}</div><div class="h-date">${h.date}</div></div><div class="h-source" style="margin-top:4px;line-height:1.45;">Expected: <strong>${fmt(v.expected)}</strong> · Counted: <strong>${fmt(v.counted)}</strong> · Difference: <strong style="color:${diffColor}">${diffText}</strong>${adjustmentLine}${pendingLine}${v.note?`<br>Note: ${escapeHTML(v.note)}`:''}</div></div></div>`;
+  const deleteBtn=`<button onclick="deleteVerificationHistory('${h.envelope_id}',${h.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;margin-left:8px;">🗑</button>`;
+  return `<div class="history-item"><div style="width:100%;"><div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;"><div><strong>Verification</strong> · ${v.status}</div><div style="display:flex;align-items:center;"><div class="h-date">${h.date}</div>${deleteBtn}</div></div><div class="h-source" style="margin-top:4px;line-height:1.45;">Expected: <strong>${fmt(v.expected)}</strong> · Counted: <strong>${fmt(v.counted)}</strong> · Difference: <strong style="color:${diffColor}">${diffText}</strong>${adjustmentLine}${pendingLine}${v.note?`<br>Note: ${escapeHTML(v.note)}`:''}</div></div></div>`;
 }
 
 function escapeHTML(str){
@@ -1540,6 +1542,47 @@ function updateVerifyDifference(){
   diffEl.style.color=diff===0?'var(--green)':(diff>0?'var(--blue)':'var(--red)');
   updateVerifyActionButtons();
 }
+
+async function deleteVerificationHistory(envId,histId){
+  const h=envHistory.find(x=>x.id===histId&&x.envelope_id===envId&&x.type==='verification');
+  if(!h){ alert('Verification history record not found. Refresh data and try again.'); return; }
+  const env=envelopes.find(e=>e.id===envId);
+  if(!env){ alert('Bucket not found. Refresh data and try again.'); return; }
+  const v=parseVerificationSource(h.source);
+  const adjustmentAmount=roundMoney(h.amount);
+  const reversesBalance=v.status==='Adjusted'&&adjustmentAmount!==0;
+  const confirmMsg=reversesBalance
+    ? `Delete this adjusted verification? This will reverse the bucket adjustment of ${fmt(adjustmentAmount)} and change ${env.name} by ${fmt(-adjustmentAmount)}. Deal records will not be changed.`
+    : `Delete this verification history record for ${env.name}? Bucket balances and deal records will not be changed.`;
+  if(!confirm(confirmMsg)) return;
+
+  const beforeBalance=roundMoney(env.balance);
+  try{
+    await checkedDeleteHistoryRow(h);
+
+    if(reversesBalance){
+      await applyEnvelopeDelta(envId,-adjustmentAmount,'Verification delete reversal balance update');
+    }
+
+    const updatedEnv=envelopes.find(e=>e.id===envId);
+    const afterBalance=updatedEnv?roundMoney(updatedEnv.balance):beforeBalance;
+    const deletedConfirmed=!envHistory.some(x=>x.id===histId);
+    const balanceText=reversesBalance
+      ? ` Adjustment reversed. Bucket balance changed from ${fmt(beforeBalance)} to ${fmt(afterBalance)}.`
+      : ' No bucket balances were changed.';
+    renderBuckets();
+
+    if(deletedConfirmed){
+      showAuditReminder(`🗑 Verification History Delete Confirmed for ${env.name}. Status was ${v.status}. History record removed.${balanceText} Deal records were not changed.`);
+    }else{
+      showAutoAuditResult(`Verification delete may have failed for ${env.name}. Please check history before relying on this record.`);
+    }
+  }catch(err){
+    showStatus('Error deleting verification history: '+err.message+' Run Bucket Audit before making more changes.','s-err');
+    await loadAllData();
+  }
+}
+
 async function saveVerificationRecord(action='verified'){
   const env=envelopes.find(e=>e.id===verifyEnvId);
   if(!env){ alert('Bucket not found.'); return; }
