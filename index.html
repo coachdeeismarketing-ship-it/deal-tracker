@@ -13,6 +13,7 @@
 <!-- Phase 2B-2A: Verification save confirms matching history record before success message. -->
 <!-- Phase 2B-3: Discrepancy resolution adds Check Later and Adjust Bucket actions. -->
 <!-- Phase 2B-3A: Delete verification history safely; adjusted rows reverse bucket balance without changing deals. -->
+<!-- Phase 2B-3B: Rebuild bucket balances from envelope history to repair balance/history drift. -->
 <!-- Phase 2B-2: Save bucket verification records to history. No balance changes. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -506,6 +507,8 @@ tr.hl{background:rgba(0,229,160,0.05);}
       <div style="font-family:'Syne',sans-serif;font-size:0.92rem;font-weight:800;margin-bottom:7px;color:var(--green);">🧾 Bucket Audit</div>
       <p style="font-size:0.76rem;color:var(--muted);line-height:1.45;margin-bottom:10px;">Checks whether every deal's bucket amount was actually posted into envelope history, and whether envelope balances match their history totals.</p>
       <button class="save-btn" style="font-size:0.86rem;padding:12px" onclick="runBucketAudit()">Run Bucket Audit</button>
+      <button class="save-btn" style="font-size:0.86rem;padding:12px;margin-top:9px;background:var(--orange);color:#000" onclick="rebuildBucketBalancesFromHistory()">Rebuild Bucket Balances From History</button>
+      <p style="font-size:0.72rem;color:var(--muted);line-height:1.45;margin-top:8px;">Use this only when the audit says Actual Bucket Cash does not match History. It rewrites bucket balances from envelope history and does not change deal records.</p>
       <div id="bucketAuditResults" style="margin-top:12px;font-size:0.82rem;line-height:1.45;"></div>
     </div>
   </div>
@@ -1847,6 +1850,69 @@ function auditDealBucketPosting(dealId,expectedBucketAmount){
   const rows=dealHistoryRows(dealId);
   const historyTotal=rows.reduce((s,h)=>s+(Math.round(parseFloat(h.amount)||0)),0);
   return {pass:historyTotal===expected,expected,historyTotal,count:rows.length,rows};
+}
+
+async function rebuildBucketBalancesFromHistory(){
+  if(!confirm('Rebuild ALL bucket balances from envelope history?\n\nThis will not change deal records or history records. It will rewrite each bucket balance so Actual Bucket Cash matches History.')) return;
+  const box=document.getElementById('bucketAuditResults');
+  if(box){
+    box.innerHTML='<div style="padding:11px;border-radius:10px;border:1px solid var(--orange);background:#2a1808;color:var(--orange);font-weight:700;margin-bottom:10px;">Rebuilding bucket balances from history…</div>';
+  }
+  try{
+    const {data:latestHist,error:histErr}=await sb.from('envelope_history').select('*').order('created_at',{ascending:false});
+    if(histErr) throw new Error('Could not load envelope history: '+histErr.message);
+
+    const {data:latestEnvs,error:envErr}=await sb.from('envelope_balances').select('*');
+    if(envErr) throw new Error('Could not load bucket balances: '+envErr.message);
+
+    envHistory=latestHist||[];
+    const envRows=(latestEnvs&&latestEnvs.length)?latestEnvs:envelopes;
+
+    const totals={};
+    envHistory.forEach(h=>{
+      totals[h.envelope_id]=roundMoney((totals[h.envelope_id]||0)+roundMoney(h.amount));
+    });
+
+    const changes=[];
+    for(const row of envRows){
+      const oldBalance=roundMoney(row.balance);
+      const newBalance=roundMoney(totals[row.id]||0);
+      const updated={...row,balance:newBalance};
+      await sb.from('envelope_balances').upsert({
+        id:updated.id,
+        name:updated.name,
+        pct:roundMoney(updated.pct),
+        goal:roundMoney(updated.goal),
+        grp:updated.grp||'',
+        realloc:updated.realloc||'',
+        balance:newBalance
+      });
+      if(oldBalance!==newBalance){
+        changes.push({name:updated.name||updated.id,oldBalance,newBalance,diff:roundMoney(newBalance-oldBalance)});
+      }
+    }
+
+    await loadAllData();
+    showTab('backup');
+    runBucketAudit();
+
+    const changeHtml=changes.length
+      ? changes.map(c=>`<div><strong>${c.name}</strong>: ${fmt(c.oldBalance)} → ${fmt(c.newBalance)} (${c.diff>=0?'+':''}${fmt(c.diff)})</div>`).join('')
+      : '<div>No bucket balances needed changes.</div>';
+
+    if(box){
+      box.innerHTML='<div style="padding:11px;border-radius:10px;border:1px solid var(--green);background:#082a18;color:var(--green);font-weight:700;margin-bottom:10px;">✅ Rebuild complete.</div>'+
+        '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:10px;">'+changeHtml+'</div>'+
+        box.innerHTML;
+    }
+
+    showAutoAuditResult('Rebuilt bucket balances from envelope history. Deal records were not changed.');
+  }catch(err){
+    if(box){
+      box.innerHTML='<div style="padding:11px;border-radius:10px;border:1px solid var(--red);background:#2a0810;color:var(--red);font-weight:700;margin-bottom:10px;">⚠️ Rebuild failed: '+err.message+'</div>';
+    }
+    showStatus('Rebuild failed: '+err.message,'s-err');
+  }
 }
 
 function runBucketAudit(){
