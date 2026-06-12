@@ -7,6 +7,14 @@
 <!-- VERSION: shared-trip-expense-controls -->
 <!-- Patch: all successful saves now use the fixed Auto Audit popup instead of the top-of-form status box. -->
 <!-- Phase 1 Bucket wording: Deal Bucket Allocations vs Actual Bucket Cash labels. -->
+<!-- Patch 2A-1: Verify Bucket button placeholder only. No money/database logic. -->
+<!-- Phase 2B-1: Verify cash counted fields only. No saving/database/balance logic. -->
+<!-- FIX-2B1A: Blank verify counted cash shows dashes until user enters a value. -->
+<!-- Phase 2B-2A: Verification save confirms matching history record before success message. -->
+<!-- Phase 2B-3: Discrepancy resolution adds Check Later and Adjust Bucket actions. -->
+<!-- Phase 2B-3A: Delete verification history safely; adjusted rows reverse bucket balance without changing deals. -->
+<!-- Phase 2B-3B: Rebuild bucket balances from envelope history to repair balance/history drift. -->
+<!-- Phase 2B-2: Save bucket verification records to history. No balance changes. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
@@ -144,9 +152,9 @@ tr.hl{background:rgba(0,229,160,0.05);}
 .env-actions{display:flex;gap:7px;}
 .env-btn{flex:1;padding:9px;border:none;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:0.76rem;font-weight:600;cursor:pointer;}
 .env-btn-add{background:rgba(0,229,160,0.12);color:var(--green);border:1px solid rgba(0,229,160,0.3);}
-.env-btn-spend{background:rgba(255,64,96,0.10);color:var(--red);border:1px solid rgba(255,64,96,0.35);}
 .env-btn-history{background:rgba(255,255,255,0.05);color:var(--muted);border:1px solid var(--border);}
 .env-btn-edit{background:rgba(155,125,255,0.1);color:var(--purple);border:1px solid rgba(155,125,255,0.3);}
+.env-btn-verify{background:rgba(245,200,66,0.10);color:var(--gold);border:1px solid rgba(245,200,66,0.35);}
 .history-list{margin-top:11px;display:none;border-top:1px solid var(--border);padding-top:11px;}
 .history-list.open{display:block;}
 .history-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:0.8rem;}
@@ -499,6 +507,8 @@ tr.hl{background:rgba(0,229,160,0.05);}
       <div style="font-family:'Syne',sans-serif;font-size:0.92rem;font-weight:800;margin-bottom:7px;color:var(--green);">🧾 Bucket Audit</div>
       <p style="font-size:0.76rem;color:var(--muted);line-height:1.45;margin-bottom:10px;">Checks whether every deal's bucket amount was actually posted into envelope history, and whether envelope balances match their history totals.</p>
       <button class="save-btn" style="font-size:0.86rem;padding:12px" onclick="runBucketAudit()">Run Bucket Audit</button>
+      <button class="save-btn" style="font-size:0.86rem;padding:12px;margin-top:9px;background:var(--orange);color:#000" onclick="rebuildBucketBalancesFromHistory()">Rebuild Bucket Balances From History</button>
+      <p style="font-size:0.72rem;color:var(--muted);line-height:1.45;margin-top:8px;">Use this only when the audit says Actual Bucket Cash does not match History. It rewrites bucket balances from envelope history and does not change deal records.</p>
       <div id="bucketAuditResults" style="margin-top:12px;font-size:0.82rem;line-height:1.45;"></div>
     </div>
   </div>
@@ -558,14 +568,14 @@ tr.hl{background:rgba(0,229,160,0.05);}
 <!-- DIRECT DEPOSIT MODAL -->
 <div class="modal-overlay" id="depositModal">
   <div class="modal">
-    <div class="modal-title" id="depositModalTitle">💵 Add Direct Deposit</div>
+    <div class="modal-title">💵 Add Direct Deposit</div>
     <p style="font-size:0.84rem;color:var(--muted);margin-bottom:14px;" id="depositEnvName"></p>
     <div class="fg">
       <div class="fi full"><label>Amount ($)</label><input type="number" id="dep_amount" placeholder="0"></div>
       <div class="fi full"><label>Where It Came From</label><input type="text" id="dep_note" placeholder="e.g. Extra cash from side job…"></div>
       <div class="fi full"><label>Date</label><input type="date" id="dep_date"></div>
     </div>
-    <div class="modal-btns"><button class="m-cancel" onclick="closeDeposit()">Cancel</button><button class="m-save" id="depositSaveBtn" onclick="saveDeposit()">Add to Envelope</button></div>
+    <div class="modal-btns"><button class="m-cancel" onclick="closeDeposit()">Cancel</button><button class="m-save" onclick="saveDeposit()">Add to Envelope</button></div>
   </div>
 </div>
 
@@ -598,6 +608,27 @@ tr.hl{background:rgba(0,229,160,0.05);}
       <button class="allocation-fix" onclick="closeAllocationWarning()">Fix It</button>
       <button class="allocation-save" onclick="saveAnywayAllocation()">Save Anyway</button>
     </div>
+  </div>
+</div>
+
+
+
+<!-- VERIFY BUCKET MODAL — Phase 2B-1 fields only, no saving/database/balance logic -->
+<div class="modal-overlay" id="verifyPlaceholderModal">
+  <div class="modal">
+    <div class="modal-title">✅ Verify Bucket</div>
+    <div id="verifyBucketName" style="font-family:'Syne',sans-serif;font-size:0.95rem;font-weight:800;margin-bottom:12px;color:var(--text);"></div>
+    <div class="calc-box" style="display:block;margin-bottom:13px;">
+      <div class="calc-row"><span class="calc-label">Current Actual Bucket Cash</span><span id="verifyCurrentCash">$0</span></div>
+      <div class="calc-row"><span class="calc-label">Actual Cash Counted</span><span id="verifyCountedDisplay">$0</span></div>
+      <div class="calc-row"><span>Difference</span><span id="verifyDifference">$0</span></div>
+    </div>
+    <div class="fg">
+      <div class="fi full"><label>Actual Cash Counted ($)</label><input type="number" id="verifyCountedInput" placeholder="Enter what you physically counted" oninput="updateVerifyDifference()"></div>
+      <div class="fi full"><label>Verification Note</label><textarea id="verifyNoteInput" placeholder="Optional note. Example: counted envelope, possible borrowed cash, checking later…"></textarea></div>
+    </div>
+    <p style="font-size:0.78rem;color:var(--muted);line-height:1.45;margin-top:4px;" id="verifyPhaseMessage">Phase 2B-3: if the count matches, save verification. If it does not match, choose Check Later or Adjust Bucket.</p>
+    <div class="modal-btns" id="verifyActionButtons"><button class="m-cancel" onclick="closeVerifyPlaceholder()">Cancel</button><button class="m-cancel" id="verifyCheckLaterBtn" style="display:none;color:var(--gold);border-color:rgba(245,200,66,0.45);" onclick="saveVerificationRecord('check_later')">Check Later</button><button class="m-danger" id="verifyAdjustBtn" style="display:none" onclick="saveVerificationRecord('adjust')">Adjust Bucket</button><button class="m-save" id="verifySaveBtn" onclick="saveVerificationRecord('verified')">Save Verification</button></div>
   </div>
 </div>
 
@@ -1026,8 +1057,8 @@ async function checkedDeleteHistoryRow(histRow){
 async function applyEnvelopeDelta(envId,delta,context='Envelope adjustment'){
   const env=envelopes.find(e=>e.id===envId);
   if(!env) throw new Error(context+' failed: envelope '+envId+' was not found.');
-  env.balance=roundMoney(env.balance)+roundMoney(delta);
-  if(delta>0&&env.goal>0&&env.balance>env.goal) env.balance=env.goal;
+  env.balance=Math.max(0,roundMoney(env.balance)+roundMoney(delta));
+  if(env.goal>0&&env.balance>env.goal) env.balance=env.goal;
   await checkedUpsertEnvelope(env,context);
   return env;
 }
@@ -1378,12 +1409,11 @@ function renderBuckets(){
     const pctFill=env.goal>0?Math.min(100,(env.balance/env.goal*100)):null;
     const hist=envHistory.filter(h=>h.envelope_id===env.id);
     const histHTML=hist.length?hist.slice(0,20).map(h=>{
+      if(h.type==='verification'){
+        return renderVerificationHistoryItem(h);
+      }
       const btns=h.type==='direct'?`<div style="display:flex;gap:4px;margin-left:8px;"><button onclick="editDeposit('${env.id}',${h.id})" style="background:rgba(155,125,255,0.15);border:1px solid var(--purple);color:var(--purple);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">✏️</button><button onclick="deleteDeposit('${env.id}',${h.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">🗑</button></div>`:'';
-      const isSpend=roundMoney(h.amount)<0;
-      const hLabel=h.type==='deal'?'From Deal':(isSpend?'Bucket Spend':'Direct Deposit');
-      const hAmtText=(isSpend?'-':'+')+fmt(Math.abs(roundMoney(h.amount)));
-      const hAmtColor=isSpend?'var(--red)':'var(--green)';
-      return `<div class="history-item"><div><div>${escapeHTML(h.source)}</div><div class="h-source">${hLabel}</div></div><div style="text-align:right;display:flex;align-items:center;"><div><div class="h-amt" style="color:${hAmtColor}">${hAmtText}</div><div class="h-date">${h.date}</div></div>${btns}</div></div>`;
+      return `<div class="history-item"><div><div>${h.source}</div><div class="h-source">${h.type==='deal'?'From Deal':'Direct Deposit'}</div></div><div style="text-align:right;display:flex;align-items:center;"><div><div class="h-amt">+${fmt(h.amount)}</div><div class="h-date">${h.date}</div></div>${btns}</div></div>`;
     }).join(''):'<div style="color:var(--muted);font-size:0.78rem;padding:8px 0;font-style:italic">No history yet</div>';
     return `<div class="envelope-card">
       <div class="env-header">
@@ -1397,6 +1427,7 @@ function renderBuckets(){
       </div>
       <div class="env-actions">
         <button class="env-btn env-btn-add" onclick="openDeposit('${env.id}')">+ Add Money</button>
+        <button class="env-btn env-btn-verify" onclick="openVerifyPlaceholder('${env.id}')">✅ Verify</button>
         <button class="env-btn env-btn-history" onclick="toggleHistory('hist_${env.id}')">📋 History</button>
         <button class="env-btn env-btn-edit" onclick="openEnvEdit('${env.id}')">✏️ Edit</button>
       </div>
@@ -1412,126 +1443,295 @@ function renderBuckets(){
 
 function toggleHistory(id){ document.getElementById(id).classList.toggle('open'); }
 
-// ── DIRECT DEPOSIT / BUCKET SPEND ──
-function openDeposit(envId){
-  depositEnvId=envId;
+function parseVerificationSource(source){
+  const result={status:'Verification',expected:0,counted:0,difference:0,note:''};
+  if(!source) return result;
+  source.split('|').map(p=>p.trim()).forEach(part=>{
+    const idx=part.indexOf(':');
+    if(idx<0) return;
+    const key=part.slice(0,idx).trim().toLowerCase();
+    const val=part.slice(idx+1).trim();
+    if(key==='status') result.status=val;
+    if(key==='expected') result.expected=roundMoney(val.replace(/[^0-9.-]/g,''));
+    if(key==='counted') result.counted=roundMoney(val.replace(/[^0-9.-]/g,''));
+    if(key==='difference') result.difference=roundMoney(val.replace(/[^0-9.-]/g,''));
+    if(key==='note') result.note=val;
+  });
+  return result;
+}
+
+function renderVerificationHistoryItem(h){
+  const v=parseVerificationSource(h.source);
+  const diffText=(v.difference>0?'+':'')+fmt(v.difference);
+  const diffColor=v.difference===0?'var(--green)':(v.difference>0?'var(--blue)':'var(--red)');
+  const adjustmentLine=v.status==='Adjusted'?`<br>Adjustment posted: <strong style="color:${diffColor}">${diffText}</strong>`:'';
+  const pendingLine=v.status==='Pending Investigation'?`<br><span style="color:var(--gold);font-weight:700;">Check Later — balance unchanged</span>`:'';
+  const deleteBtn=`<button onclick="deleteVerificationHistory('${h.envelope_id}',${h.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;margin-left:8px;">🗑</button>`;
+  return `<div class="history-item"><div style="width:100%;"><div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;"><div><strong>Verification</strong> · ${v.status}</div><div style="display:flex;align-items:center;"><div class="h-date">${h.date}</div>${deleteBtn}</div></div><div class="h-source" style="margin-top:4px;line-height:1.45;">Expected: <strong>${fmt(v.expected)}</strong> · Counted: <strong>${fmt(v.counted)}</strong> · Difference: <strong style="color:${diffColor}">${diffText}</strong>${adjustmentLine}${pendingLine}${v.note?`<br>Note: ${escapeHTML(v.note)}`:''}</div></div></div>`;
+}
+
+function escapeHTML(str){
+  return String(str||'').replace(/[&<>'"]/g, ch=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+}
+
+
+let verifyEnvId=null;
+function updateVerifyActionButtons(){
+  const env=envelopes.find(e=>e.id===verifyEnvId);
+  const raw=document.getElementById('verifyCountedInput')?.value||'';
+  const saveBtn=document.getElementById('verifySaveBtn');
+  const checkBtn=document.getElementById('verifyCheckLaterBtn');
+  const adjustBtn=document.getElementById('verifyAdjustBtn');
+  const msg=document.getElementById('verifyPhaseMessage');
+  if(!saveBtn||!checkBtn||!adjustBtn) return;
+  if(raw===''){
+    saveBtn.style.display='inline-block';
+    saveBtn.disabled=true;
+    checkBtn.style.display='none';
+    adjustBtn.style.display='none';
+    if(msg) msg.textContent='Enter the cash you physically counted. The app will show whether the bucket matches, is short, or is over.';
+    return;
+  }
+  saveBtn.disabled=false;
+  const expected=env?roundMoney(env.balance):0;
+  const counted=roundMoney(raw);
+  const difference=counted-expected;
+  if(difference===0){
+    saveBtn.style.display='inline-block';
+    saveBtn.textContent='Save Verification';
+    checkBtn.style.display='none';
+    adjustBtn.style.display='none';
+    if(msg) msg.textContent='Amounts match. Save Verification records the count and does not change bucket money.';
+  }else{
+    saveBtn.style.display='none';
+    checkBtn.style.display='inline-block';
+    adjustBtn.style.display='inline-block';
+    adjustBtn.textContent='Adjust Bucket';
+    if(msg) msg.textContent='Discrepancy found. Check Later keeps the balance unchanged. Adjust Bucket changes the bucket balance to the cash counted.';
+  }
+}
+function openVerifyPlaceholder(envId){
+  verifyEnvId=envId;
   const env=envelopes.find(e=>e.id===envId);
-  const modal=document.getElementById('depositModal');
-  modal.dataset.mode='deposit';
-  modal.dataset.editId='';
-  modal.dataset.editEnvId='';
-  document.getElementById('depositModalTitle').textContent='💵 Add Money';
-  document.getElementById('depositEnvName').textContent='Adding money to: '+env.name;
-  document.getElementById('dep_amount').value='';
-  document.getElementById('dep_note').value='';
-  document.getElementById('dep_note').placeholder='e.g. Extra cash from side job…';
-  document.getElementById('dep_date').value=new Date().toISOString().split('T')[0];
-  document.getElementById('depositSaveBtn').textContent='Add to Envelope';
-  document.getElementById('depositSaveBtn').className='m-save';
-  modal.classList.add('show');
+  const current=env?roundMoney(env.balance):0;
+  document.getElementById('verifyBucketName').textContent=env?env.name:'Bucket';
+  document.getElementById('verifyCurrentCash').textContent=fmt(current);
+  document.getElementById('verifyCountedInput').value='';
+  document.getElementById('verifyNoteInput').value='';
+  document.getElementById('verifyCountedDisplay').textContent='—';
+  document.getElementById('verifyDifference').textContent='—';
+  document.getElementById('verifyDifference').style.color='var(--muted)';
+  updateVerifyActionButtons();
+  document.getElementById('verifyPlaceholderModal').classList.add('show');
 }
-function openSpend(envId){
-  depositEnvId=envId;
+function updateVerifyDifference(){
+  const env=envelopes.find(e=>e.id===verifyEnvId);
+  const current=env?roundMoney(env.balance):0;
+  const raw=document.getElementById('verifyCountedInput').value;
+  const diffEl=document.getElementById('verifyDifference');
+
+  if(raw===''){
+    document.getElementById('verifyCountedDisplay').textContent='—';
+    diffEl.textContent='—';
+    diffEl.style.color='var(--muted)';
+    updateVerifyActionButtons();
+    return;
+  }
+
+  const counted=roundMoney(raw);
+  const diff=counted-current;
+  document.getElementById('verifyCountedDisplay').textContent=fmt(counted);
+  diffEl.textContent=(diff>0?'+':'')+fmt(diff);
+  diffEl.style.color=diff===0?'var(--green)':(diff>0?'var(--blue)':'var(--red)');
+  updateVerifyActionButtons();
+}
+
+async function deleteVerificationHistory(envId,histId){
+  const h=envHistory.find(x=>x.id===histId&&x.envelope_id===envId&&x.type==='verification');
+  if(!h){ alert('Verification history record not found. Refresh data and try again.'); return; }
   const env=envelopes.find(e=>e.id===envId);
-  const modal=document.getElementById('depositModal');
-  modal.dataset.mode='spend';
-  modal.dataset.editId='';
-  modal.dataset.editEnvId='';
-  document.getElementById('depositModalTitle').textContent='💸 Spend Money';
-  document.getElementById('depositEnvName').textContent='Spending money from: '+env.name;
-  document.getElementById('dep_amount').value='';
-  document.getElementById('dep_note').value='';
-  document.getElementById('dep_note').placeholder='e.g. Shirts, supplies, payment made…';
-  document.getElementById('dep_date').value=new Date().toISOString().split('T')[0];
-  document.getElementById('depositSaveBtn').textContent='Record Spend';
-  document.getElementById('depositSaveBtn').className='m-danger';
-  modal.classList.add('show');
+  if(!env){ alert('Bucket not found. Refresh data and try again.'); return; }
+  const v=parseVerificationSource(h.source);
+  const adjustmentAmount=roundMoney(h.amount);
+  const reversesBalance=v.status==='Adjusted'&&adjustmentAmount!==0;
+  const confirmMsg=reversesBalance
+    ? `Delete this adjusted verification? This will reverse the bucket adjustment of ${fmt(adjustmentAmount)} and change ${env.name} by ${fmt(-adjustmentAmount)}. Deal records will not be changed.`
+    : `Delete this verification history record for ${env.name}? Bucket balances and deal records will not be changed.`;
+  if(!confirm(confirmMsg)) return;
+
+  const beforeBalance=roundMoney(env.balance);
+  try{
+    await checkedDeleteHistoryRow(h);
+
+    if(reversesBalance){
+      await applyEnvelopeDelta(envId,-adjustmentAmount,'Verification delete reversal balance update');
+    }
+
+    const updatedEnv=envelopes.find(e=>e.id===envId);
+    const afterBalance=updatedEnv?roundMoney(updatedEnv.balance):beforeBalance;
+    const deletedConfirmed=!envHistory.some(x=>x.id===histId);
+    const balanceText=reversesBalance
+      ? ` Adjustment reversed. Bucket balance changed from ${fmt(beforeBalance)} to ${fmt(afterBalance)}.`
+      : ' No bucket balances were changed.';
+    renderBuckets();
+
+    if(deletedConfirmed){
+      showAuditReminder(`🗑 Verification History Delete Confirmed for ${env.name}. Status was ${v.status}. History record removed.${balanceText} Deal records were not changed.`);
+    }else{
+      showAutoAuditResult(`Verification delete may have failed for ${env.name}. Please check history before relying on this record.`);
+    }
+  }catch(err){
+    showStatus('Error deleting verification history: '+err.message+' Run Bucket Audit before making more changes.','s-err');
+    await loadAllData();
+  }
 }
-function closeDeposit(){
-  const modal=document.getElementById('depositModal');
-  modal.classList.remove('show');
-  modal.dataset.mode='';
-  modal.dataset.editId='';
-  modal.dataset.editEnvId='';
-  depositEnvId=null;
+
+async function saveVerificationRecord(action='verified'){
+  const env=envelopes.find(e=>e.id===verifyEnvId);
+  if(!env){ alert('Bucket not found.'); return; }
+  const raw=document.getElementById('verifyCountedInput').value;
+  if(raw===''){
+    alert('Enter the actual cash counted before saving the verification.');
+    return;
+  }
+  const expected=roundMoney(env.balance);
+  const counted=roundMoney(raw);
+  const difference=counted-expected;
+  const note=(document.getElementById('verifyNoteInput').value||'').trim();
+  const date=new Date().toISOString().split('T')[0];
+
+  let status='Verified';
+  let historyAmount=0;
+  let balanceChanged=false;
+  let beforeBalance=expected;
+  let afterBalance=expected;
+
+  if(difference===0){
+    status='Verified';
+    historyAmount=0;
+  }else if(action==='check_later'){
+    status='Pending Investigation';
+    historyAmount=0;
+  }else if(action==='adjust'){
+    status='Adjusted';
+    historyAmount=difference;
+    balanceChanged=true;
+    afterBalance=counted;
+  }else{
+    alert('This bucket does not match. Choose Check Later or Adjust Bucket.');
+    return;
+  }
+
+  const source=`Status: ${status} | Expected: ${fmt(expected)} | Counted: ${fmt(counted)} | Difference: ${(difference>0?'+':'')+fmt(difference)} | Note: ${note}`;
+  try{
+    let balanceConfirmed=true;
+    if(balanceChanged){
+      env.balance=roundMoney(afterBalance);
+      await checkedUpsertEnvelope(env,'Verification adjustment balance update');
+      balanceConfirmed=roundMoney(env.balance)===roundMoney(afterBalance);
+    }
+
+    const histItem={envelope_id:env.id,date,amount:historyAmount,source,type:'verification'};
+    const saved=await checkedInsertHistory(histItem,'Bucket verification record');
+
+    // Phase 2B-3 safety check: confirm the verification record exists in history before showing success.
+    const historyConfirmed=!!(saved&&saved.id&&envHistory.some(h=>h.id===saved.id&&h.envelope_id===env.id&&h.type==='verification'));
+
+    closeVerifyPlaceholder();
+    renderBuckets();
+
+    const diffText=(difference>0?'+':'')+fmt(difference);
+    if(historyConfirmed&&balanceConfirmed){
+      if(status==='Verified'){
+        showAuditReminder(`✅ Verification Save Confirmed for ${env.name}. Expected: ${fmt(expected)} · Counted: ${fmt(counted)} · Difference: ${diffText} · Status: ${status}. History record confirmed. No bucket balances were changed.`);
+      }else if(status==='Pending Investigation'){
+        showAuditReminder(`⏳ Verification saved as Check Later for ${env.name}. Expected: ${fmt(expected)} · Counted: ${fmt(counted)} · Difference: ${diffText} · Status: Pending Investigation. History record confirmed. Bucket balance stayed ${fmt(expected)}.`);
+      }else{
+        showAuditReminder(`🔧 Bucket Adjustment Confirmed for ${env.name}. Expected: ${fmt(beforeBalance)} · Counted: ${fmt(counted)} · Difference: ${diffText} · Status: Adjusted. History record confirmed. Bucket balance changed from ${fmt(beforeBalance)} to ${fmt(afterBalance)}.`);
+      }
+    }else{
+      showAutoAuditResult(`Verification may have saved, but confirmation failed for ${env.name}. Please check bucket history and balance before relying on this record.`, 'warn');
+    }
+  }catch(err){
+    showStatus('Error saving verification: '+err.message,'s-err');
+    await loadAllData();
+  }
 }
+
+function closeVerifyPlaceholder(){
+  document.getElementById('verifyPlaceholderModal').classList.remove('show');
+  verifyEnvId=null;
+}
+
+// ── DIRECT DEPOSIT ──
+function openDeposit(envId){ depositEnvId=envId; const env=envelopes.find(e=>e.id===envId); document.getElementById('depositEnvName').textContent='Adding directly to: '+env.name; document.getElementById('dep_amount').value=''; document.getElementById('dep_note').value=''; document.getElementById('dep_date').value=new Date().toISOString().split('T')[0]; document.getElementById('depositModal').classList.add('show'); }
+function closeDeposit(){ document.getElementById('depositModal').classList.remove('show'); depositEnvId=null; }
 async function saveDeposit(){
   const env=envelopes.find(e=>e.id===depositEnvId); if(!env) return;
-  const rawAmount=roundMoney(document.getElementById('dep_amount').value);
-  if(!rawAmount){ alert('Please enter an amount.'); return; }
+  const amount=roundMoney(document.getElementById('dep_amount').value);
+  if(!amount){ alert('Please enter an amount.'); return; }
+  const note=document.getElementById('dep_note').value||'Direct deposit',date=document.getElementById('dep_date').value||new Date().toISOString().split('T')[0];
   const modal=document.getElementById('depositModal');
-  const mode=modal.dataset.mode||'deposit';
   const editId=modal.dataset.editId?parseInt(modal.dataset.editId):null;
-  const amount=mode==='spend'?-Math.abs(rawAmount):Math.abs(rawAmount);
-  const note=document.getElementById('dep_note').value||(mode==='spend'?'Bucket spend':'Direct deposit');
-  const date=document.getElementById('dep_date').value||new Date().toISOString().split('T')[0];
   try{
     if(editId){
       const oldHist=envHistory.find(h=>h.id===editId);
       const oldAmount=oldHist?roundMoney(oldHist.amount):0;
       if(oldHist&&getHistoryDealId(oldHist)!==getHistoryDealId({source:note})){
-        if(!confirm('This entry appears connected to a deal/repair note. Changing the note may affect the audit. Continue?')) return;
+        if(!confirm('This deposit appears connected to a deal/repair note. Changing the note may affect the audit. Continue?')) return;
       }
-      env.balance=roundMoney(env.balance)-oldAmount+amount;
-      if(amount>0&&env.goal>0&&env.balance>env.goal) env.balance=env.goal;
-      await checkedUpsertEnvelope(env, mode==='spend'?'Bucket spend edit balance update':'Direct deposit edit balance update');
-      const {error:histErr}=await sb.from('envelope_history').update({amount,source:note,date,type:'direct'}).eq('id',editId);
+      env.balance=Math.max(0,roundMoney(env.balance)-oldAmount+amount);
+      if(env.goal>0&&env.balance>env.goal) env.balance=env.goal;
+      await checkedUpsertEnvelope(env,'Direct deposit edit balance update');
+      const {error:histErr}=await sb.from('envelope_history').update({amount,source:note,date}).eq('id',editId);
       if(histErr) throw histErr;
       const idx=envHistory.findIndex(h=>h.id===editId);
-      if(idx>=0) envHistory[idx]={...envHistory[idx],amount,source:note,date,type:'direct'};
+      if(idx>=0) envHistory[idx]={...envHistory[idx],amount,source:note,date};
+      modal.dataset.editId=''; modal.dataset.editEnvId='';
       closeDeposit(); renderBuckets();
-      showAuditReminder(mode==='spend'?'✅ Spend entry updated.':'✅ Deposit updated.');
+      showAuditReminder('✅ Deposit updated.');
     } else {
       env.balance=roundMoney(env.balance)+amount;
-      if(amount>0&&env.goal>0&&env.balance>env.goal) env.balance=env.goal;
-      await checkedUpsertEnvelope(env, mode==='spend'?'Bucket spend balance update':'Direct deposit balance update');
+      if(env.goal>0&&env.balance>env.goal) env.balance=env.goal;
+      await checkedUpsertEnvelope(env,'Direct deposit balance update');
       const histItem={envelope_id:env.id,date,amount,source:note,type:'direct'};
-      await checkedInsertHistory(histItem, mode==='spend'?'Bucket spend history insert':'Direct deposit history insert');
+      await checkedInsertHistory(histItem,'Direct deposit history insert');
       closeDeposit(); renderBuckets();
-      showAuditReminder(mode==='spend'?`✅ Spend recorded for ${env.name}. Balance reduced by ${fmt(Math.abs(amount))}.`:'✅ Deposit added.');
+      showAuditReminder('✅ Deposit added.');
     }
-  }catch(err){ showStatus('Error saving bucket entry: '+err.message,'s-err'); await loadAllData(); }
+  }catch(err){ showStatus('Error saving deposit: '+err.message,'s-err'); await loadAllData(); }
 }
 
 // ── EDIT/DELETE DIRECT DEPOSITS ──
 function editDeposit(envId, histId){
   const env=envelopes.find(e=>e.id===envId); if(!env) return;
   const h=envHistory.find(x=>x.id===histId); if(!h) return;
-  const isSpend=roundMoney(h.amount)<0;
   depositEnvId=envId;
-  const modal=document.getElementById('depositModal');
-  modal.dataset.mode=isSpend?'spend':'deposit';
-  modal.dataset.editId=histId;
-  modal.dataset.editEnvId=envId;
-  document.getElementById('depositModalTitle').textContent=isSpend?'✏️ Edit Spend':'✏️ Edit Deposit';
-  document.getElementById('depositEnvName').textContent=(isSpend?'Editing spend from: ':'Editing deposit in: ')+env.name;
-  document.getElementById('dep_amount').value=Math.abs(roundMoney(h.amount));
+  document.getElementById('depositEnvName').textContent='Editing deposit in: '+env.name;
+  document.getElementById('dep_amount').value=h.amount;
   document.getElementById('dep_note').value=h.source;
-  document.getElementById('dep_note').placeholder=isSpend?'e.g. Shirts, supplies, payment made…':'e.g. Extra cash from side job…';
   document.getElementById('dep_date').value=h.date;
-  document.getElementById('depositSaveBtn').textContent=isSpend?'Update Spend':'Update Deposit';
-  document.getElementById('depositSaveBtn').className=isSpend?'m-danger':'m-save';
-  modal.classList.add('show');
+  // Store editing ID
+  document.getElementById('depositModal').dataset.editId=histId;
+  document.getElementById('depositModal').dataset.editEnvId=envId;
+  document.getElementById('depositModal').classList.add('show');
 }
 
 async function deleteDeposit(envId, histId){
   const h=envHistory.find(x=>x.id===histId);
   if(!h) return;
   const linkedDealId=getHistoryDealId(h);
-  const isSpend=roundMoney(h.amount)<0;
   const confirmMsg=linkedDealId
-    ? 'This entry appears connected to Deal '+linkedDealId+'. Deleting it may make that deal fail the bucket audit. Delete anyway?'
-    : (isSpend
-      ? `Delete this spend entry? ${fmt(Math.abs(roundMoney(h.amount)))} will be added back to the envelope balance.`
-      : 'Delete this deposit? The amount will be reversed from the envelope balance.');
+    ? 'This deposit appears connected to Deal '+linkedDealId+'. Deleting it may make that deal fail the bucket audit. Delete anyway?'
+    : 'Delete this deposit? The amount will be reversed from the envelope balance.';
   if(!confirm(confirmMsg)) return;
   const env=envelopes.find(e=>e.id===envId); if(!env) return;
   try{
     await checkedDeleteHistoryRow(h);
-    await applyEnvelopeDelta(env.id,-roundMoney(h.amount),isSpend?'Bucket spend delete balance update':'Direct deposit delete balance update');
+    await applyEnvelopeDelta(env.id,-roundMoney(h.amount),'Direct deposit delete balance update');
     renderBuckets();
-    showAuditReminder(isSpend?'✅ Spend deleted and balance restored.':'✅ Deposit deleted and balance updated.');
-  }catch(err){ showStatus('Error deleting bucket entry: '+err.message,'s-err'); await loadAllData(); }
+    showAuditReminder('✅ Deposit deleted and balance updated.');
+  }catch(err){ showStatus('Error deleting deposit: '+err.message,'s-err'); await loadAllData(); }
 }
 
 // ── EDIT ENVELOPE ──
@@ -1650,6 +1850,69 @@ function auditDealBucketPosting(dealId,expectedBucketAmount){
   const rows=dealHistoryRows(dealId);
   const historyTotal=rows.reduce((s,h)=>s+(Math.round(parseFloat(h.amount)||0)),0);
   return {pass:historyTotal===expected,expected,historyTotal,count:rows.length,rows};
+}
+
+async function rebuildBucketBalancesFromHistory(){
+  if(!confirm('Rebuild ALL bucket balances from envelope history?\n\nThis will not change deal records or history records. It will rewrite each bucket balance so Actual Bucket Cash matches History.')) return;
+  const box=document.getElementById('bucketAuditResults');
+  if(box){
+    box.innerHTML='<div style="padding:11px;border-radius:10px;border:1px solid var(--orange);background:#2a1808;color:var(--orange);font-weight:700;margin-bottom:10px;">Rebuilding bucket balances from history…</div>';
+  }
+  try{
+    const {data:latestHist,error:histErr}=await sb.from('envelope_history').select('*').order('created_at',{ascending:false});
+    if(histErr) throw new Error('Could not load envelope history: '+histErr.message);
+
+    const {data:latestEnvs,error:envErr}=await sb.from('envelope_balances').select('*');
+    if(envErr) throw new Error('Could not load bucket balances: '+envErr.message);
+
+    envHistory=latestHist||[];
+    const envRows=(latestEnvs&&latestEnvs.length)?latestEnvs:envelopes;
+
+    const totals={};
+    envHistory.forEach(h=>{
+      totals[h.envelope_id]=roundMoney((totals[h.envelope_id]||0)+roundMoney(h.amount));
+    });
+
+    const changes=[];
+    for(const row of envRows){
+      const oldBalance=roundMoney(row.balance);
+      const newBalance=roundMoney(totals[row.id]||0);
+      const updated={...row,balance:newBalance};
+      await sb.from('envelope_balances').upsert({
+        id:updated.id,
+        name:updated.name,
+        pct:roundMoney(updated.pct),
+        goal:roundMoney(updated.goal),
+        grp:updated.grp||'',
+        realloc:updated.realloc||'',
+        balance:newBalance
+      });
+      if(oldBalance!==newBalance){
+        changes.push({name:updated.name||updated.id,oldBalance,newBalance,diff:roundMoney(newBalance-oldBalance)});
+      }
+    }
+
+    await loadAllData();
+    showTab('backup');
+    runBucketAudit();
+
+    const changeHtml=changes.length
+      ? changes.map(c=>`<div><strong>${c.name}</strong>: ${fmt(c.oldBalance)} → ${fmt(c.newBalance)} (${c.diff>=0?'+':''}${fmt(c.diff)})</div>`).join('')
+      : '<div>No bucket balances needed changes.</div>';
+
+    if(box){
+      box.innerHTML='<div style="padding:11px;border-radius:10px;border:1px solid var(--green);background:#082a18;color:var(--green);font-weight:700;margin-bottom:10px;">✅ Rebuild complete.</div>'+
+        '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:10px;">'+changeHtml+'</div>'+
+        box.innerHTML;
+    }
+
+    showAutoAuditResult('Rebuilt bucket balances from envelope history. Deal records were not changed.');
+  }catch(err){
+    if(box){
+      box.innerHTML='<div style="padding:11px;border-radius:10px;border:1px solid var(--red);background:#2a0810;color:var(--red);font-weight:700;margin-bottom:10px;">⚠️ Rebuild failed: '+err.message+'</div>';
+    }
+    showStatus('Rebuild failed: '+err.message,'s-err');
+  }
 }
 
 function runBucketAudit(){
