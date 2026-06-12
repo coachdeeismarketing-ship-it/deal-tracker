@@ -15,6 +15,7 @@
 <!-- Phase 2B-3A: Delete verification history safely; adjusted rows reverse bucket balance without changing deals. -->
 <!-- Phase 2B-3B: Rebuild bucket balances from envelope history to repair balance/history drift. -->
 <!-- Phase 2C-2: Spend Money saves withdrawals to envelope history and updates bucket balances. -->
+<!-- Phase 2C-3: Spend Money history entries can be edited/deleted like Add Money. -->
 <!-- Phase 2B-2: Save bucket verification records to history. No balance changes. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -1434,7 +1435,7 @@ function renderBuckets(){
       if(h.type==='verification'){
         return renderVerificationHistoryItem(h);
       }
-      const btns=h.type==='direct'?`<div style="display:flex;gap:4px;margin-left:8px;"><button onclick="editDeposit('${env.id}',${h.id})" style="background:rgba(155,125,255,0.15);border:1px solid var(--purple);color:var(--purple);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">✏️</button><button onclick="deleteDeposit('${env.id}',${h.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">🗑</button></div>`:'';
+      const btns=h.type==='direct'?`<div style="display:flex;gap:4px;margin-left:8px;"><button onclick="editDeposit('${env.id}',${h.id})" style="background:rgba(155,125,255,0.15);border:1px solid var(--purple);color:var(--purple);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">✏️</button><button onclick="deleteDeposit('${env.id}',${h.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">🗑</button></div>`:(h.type==='spend'?`<div style="display:flex;gap:4px;margin-left:8px;"><button onclick="editSpend('${env.id}',${h.id})" style="background:rgba(155,125,255,0.15);border:1px solid var(--purple);color:var(--purple);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">✏️</button><button onclick="deleteSpend('${env.id}',${h.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">🗑</button></div>`:'');
       const amount=roundMoney(h.amount);
       const isSpend=h.type==='spend'||amount<0;
       const amountText=(amount<0?'-':'+')+fmt(Math.abs(amount));
@@ -1697,6 +1698,9 @@ function openSpendPlaceholder(envId){
   spendEnvId=envId;
   const env=envelopes.find(e=>e.id===envId);
   if(!env){ alert('Envelope not found.'); return; }
+  const modal=document.getElementById('spendPlaceholderModal');
+  modal.dataset.editId='';
+  modal.dataset.editEnvId='';
   document.getElementById('spendBucketName').textContent=env.name;
   document.getElementById('spendCurrentBalance').textContent=fmt(env.balance);
   document.getElementById('spendAmountInput').value='';
@@ -1711,7 +1715,10 @@ function openSpendPlaceholder(envId){
 }
 
 function closeSpendPlaceholder(){
-  document.getElementById('spendPlaceholderModal').classList.remove('show');
+  const modal=document.getElementById('spendPlaceholderModal');
+  modal.classList.remove('show');
+  modal.dataset.editId='';
+  modal.dataset.editEnvId='';
   spendEnvId=null;
 }
 
@@ -1738,23 +1745,81 @@ async function saveSpend(){
   if(!amount||amount<=0){ alert('Please enter a spend amount greater than 0.'); return; }
   const note=(document.getElementById('spendNoteInput').value||'Bucket spend').trim();
   const date=document.getElementById('spendDateInput').value||new Date().toISOString().split('T')[0];
-  const before=roundMoney(env.balance);
-  const after=roundMoney(before-amount);
+  const modal=document.getElementById('spendPlaceholderModal');
+  const editId=modal.dataset.editId?parseInt(modal.dataset.editId):null;
   const btn=document.getElementById('saveSpendBtn');
-  if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
+  if(btn){ btn.disabled=true; btn.textContent=editId?'Updating…':'Saving…'; }
   try{
-    env.balance=after;
-    await checkedUpsertEnvelope(env,'Spend money balance update');
-    const histItem={envelope_id:env.id,date,amount:-amount,source:note,type:'spend'};
-    await checkedInsertHistory(histItem,'Spend money history insert');
-    closeSpendPlaceholder();
-    renderBuckets();
-    showAuditReminder(`✅ Spend saved for ${env.name}. ${fmt(amount)} spent. Balance changed from ${fmt(before)} to ${fmt(after)}.`);
+    const before=roundMoney(env.balance);
+    let after;
+    if(editId){
+      const oldHist=envHistory.find(h=>h.id===editId&&h.envelope_id===env.id&&h.type==='spend');
+      if(!oldHist) throw new Error('Spend history entry not found. Refresh data and try again.');
+      const oldAmount=roundMoney(oldHist.amount);
+      after=roundMoney(before-oldAmount-amount);
+      env.balance=after;
+      await checkedUpsertEnvelope(env,'Spend money edit balance update');
+      const {error:histErr}=await sb.from('envelope_history').update({amount:-amount,source:note,date,type:'spend'}).eq('id',editId);
+      if(histErr) throw histErr;
+      const idx=envHistory.findIndex(h=>h.id===editId);
+      if(idx>=0) envHistory[idx]={...envHistory[idx],amount:-amount,source:note,date,type:'spend'};
+      closeSpendPlaceholder();
+      renderBuckets();
+      showAuditReminder(`✅ Spend entry updated for ${env.name}. Balance changed from ${fmt(before)} to ${fmt(after)}.`);
+    }else{
+      after=roundMoney(before-amount);
+      env.balance=after;
+      await checkedUpsertEnvelope(env,'Spend money balance update');
+      const histItem={envelope_id:env.id,date,amount:-amount,source:note,type:'spend'};
+      await checkedInsertHistory(histItem,'Spend money history insert');
+      closeSpendPlaceholder();
+      renderBuckets();
+      showAuditReminder(`✅ Spend saved for ${env.name}. ${fmt(amount)} spent. Balance changed from ${fmt(before)} to ${fmt(after)}.`);
+    }
   }catch(err){
     showStatus('Error saving spend: '+err.message,'s-err');
     await loadAllData();
   }finally{
     if(btn){ btn.disabled=false; btn.textContent='Save Spend'; }
+  }
+}
+
+function editSpend(envId,histId){
+  const env=envelopes.find(e=>e.id===envId); if(!env) return;
+  const h=envHistory.find(x=>x.id===histId&&x.envelope_id===envId&&x.type==='spend');
+  if(!h){ alert('Spend history entry not found. Refresh data and try again.'); return; }
+  spendEnvId=envId;
+  const modal=document.getElementById('spendPlaceholderModal');
+  modal.dataset.editId=histId;
+  modal.dataset.editEnvId=envId;
+  document.getElementById('spendBucketName').textContent='Editing: '+env.name;
+  document.getElementById('spendCurrentBalance').textContent=fmt(env.balance);
+  document.getElementById('spendAmountInput').value=Math.abs(roundMoney(h.amount));
+  document.getElementById('spendNoteInput').value=h.source||'';
+  document.getElementById('spendDateInput').value=h.date||new Date().toISOString().split('T')[0];
+  const saveBtn=document.getElementById('saveSpendBtn');
+  if(saveBtn){ saveBtn.disabled=false; saveBtn.textContent='Update Spend'; }
+  updateSpendPreview();
+  modal.classList.add('show');
+}
+
+async function deleteSpend(envId,histId){
+  const h=envHistory.find(x=>x.id===histId&&x.envelope_id===envId&&x.type==='spend');
+  if(!h){ alert('Spend history entry not found. Refresh data and try again.'); return; }
+  const env=envelopes.find(e=>e.id===envId); if(!env) return;
+  const amount=Math.abs(roundMoney(h.amount));
+  if(!confirm(`Delete this spend entry? ${fmt(amount)} will be added back to ${env.name}.`)) return;
+  const before=roundMoney(env.balance);
+  try{
+    await checkedDeleteHistoryRow(h);
+    await applyEnvelopeDelta(env.id,amount,'Spend money delete balance update');
+    const updatedEnv=envelopes.find(e=>e.id===env.id);
+    const after=updatedEnv?roundMoney(updatedEnv.balance):roundMoney(before+amount);
+    renderBuckets();
+    showAuditReminder(`✅ Spend deleted for ${env.name}. Balance changed from ${fmt(before)} to ${fmt(after)}.`);
+  }catch(err){
+    showStatus('Error deleting spend: '+err.message,'s-err');
+    await loadAllData();
   }
 }
 
