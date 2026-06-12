@@ -14,6 +14,7 @@
 <!-- Phase 2B-3: Discrepancy resolution adds Check Later and Adjust Bucket actions. -->
 <!-- Phase 2B-3A: Delete verification history safely; adjusted rows reverse bucket balance without changing deals. -->
 <!-- Phase 2B-3B: Rebuild bucket balances from envelope history to repair balance/history drift. -->
+<!-- Phase 2C-1: Spend Money placeholder button and modal only. No balance/database/history logic. -->
 <!-- Phase 2B-2: Save bucket verification records to history. No balance changes. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -152,6 +153,7 @@ tr.hl{background:rgba(0,229,160,0.05);}
 .env-actions{display:flex;gap:7px;}
 .env-btn{flex:1;padding:9px;border:none;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:0.76rem;font-weight:600;cursor:pointer;}
 .env-btn-add{background:rgba(0,229,160,0.12);color:var(--green);border:1px solid rgba(0,229,160,0.3);}
+.env-btn-spend{background:rgba(255,64,96,0.10);color:var(--red);border:1px solid rgba(255,64,96,0.35);}
 .env-btn-history{background:rgba(255,255,255,0.05);color:var(--muted);border:1px solid var(--border);}
 .env-btn-edit{background:rgba(155,125,255,0.1);color:var(--purple);border:1px solid rgba(155,125,255,0.3);}
 .env-btn-verify{background:rgba(245,200,66,0.10);color:var(--gold);border:1px solid rgba(245,200,66,0.35);}
@@ -613,6 +615,26 @@ tr.hl{background:rgba(0,229,160,0.05);}
 
 
 
+<!-- SPEND MONEY MODAL — Phase 2C-1 placeholder only, no saving/database/balance logic -->
+<div class="modal-overlay" id="spendPlaceholderModal">
+  <div class="modal">
+    <div class="modal-title" style="color:var(--red)">− Spend Money</div>
+    <div id="spendBucketName" style="font-family:'Syne',sans-serif;font-size:0.95rem;font-weight:800;margin-bottom:12px;color:var(--text);"></div>
+    <div class="calc-box" style="display:block;margin-bottom:13px;">
+      <div class="calc-row"><span class="calc-label">Current Bucket Balance</span><span id="spendCurrentBalance">$0</span></div>
+      <div class="calc-row"><span class="calc-label">Spend Amount</span><span id="spendAmountPreview">−</span></div>
+      <div class="calc-row"><span>Balance After Spend</span><span id="spendAfterBalance">−</span></div>
+    </div>
+    <div class="fg">
+      <div class="fi full"><label>Spend Amount ($)</label><input type="number" id="spendAmountInput" placeholder="Enter amount spent" oninput="updateSpendPreview()"></div>
+      <div class="fi full"><label>Spend Note</label><textarea id="spendNoteInput" placeholder="Example: shirts, website fee, supplies…"></textarea></div>
+      <div class="fi full"><label>Date</label><input type="date" id="spendDateInput"></div>
+    </div>
+    <p style="font-size:0.78rem;color:var(--muted);line-height:1.45;margin-top:4px;">Phase 2C-1 test only: this confirms the Spend Money button and modal display correctly. It does not save or change bucket money yet.</p>
+    <div class="modal-btns"><button class="m-cancel" onclick="closeSpendPlaceholder()">Cancel</button><button class="m-danger" onclick="closeSpendPlaceholder()">Close Test Modal</button></div>
+  </div>
+</div>
+
 <!-- VERIFY BUCKET MODAL — Phase 2B-1 fields only, no saving/database/balance logic -->
 <div class="modal-overlay" id="verifyPlaceholderModal">
   <div class="modal">
@@ -661,7 +683,7 @@ const DEFAULT_ENVELOPES=[
 ];
 
 // ── STATE ──
-let deals=[], envelopes=[], envHistory=[], listening=false, correcting=false, recog=null, editingId=null, depositEnvId=null, editingEnvId=null, pendingAllocationOverrideAction=null;
+let deals=[], envelopes=[], envHistory=[], listening=false, correcting=false, recog=null, editingId=null, depositEnvId=null, spendEnvId=null, editingEnvId=null, pendingAllocationOverrideAction=null;
 
 // ── INIT ──
 async function init(){
@@ -1427,6 +1449,7 @@ function renderBuckets(){
       </div>
       <div class="env-actions">
         <button class="env-btn env-btn-add" onclick="openDeposit('${env.id}')">+ Add Money</button>
+        <button class="env-btn env-btn-spend" onclick="openSpendPlaceholder('${env.id}')">− Spend</button>
         <button class="env-btn env-btn-verify" onclick="openVerifyPlaceholder('${env.id}')">✅ Verify</button>
         <button class="env-btn env-btn-history" onclick="toggleHistory('hist_${env.id}')">📋 History</button>
         <button class="env-btn env-btn-edit" onclick="openEnvEdit('${env.id}')">✏️ Edit</button>
@@ -1664,6 +1687,43 @@ function closeVerifyPlaceholder(){
 }
 
 // ── DIRECT DEPOSIT ──
+
+function openSpendPlaceholder(envId){
+  spendEnvId=envId;
+  const env=envelopes.find(e=>e.id===envId);
+  if(!env){ alert('Envelope not found.'); return; }
+  document.getElementById('spendBucketName').textContent=env.name;
+  document.getElementById('spendCurrentBalance').textContent=fmt(env.balance);
+  document.getElementById('spendAmountInput').value='';
+  document.getElementById('spendNoteInput').value='';
+  document.getElementById('spendDateInput').value=new Date().toISOString().split('T')[0];
+  document.getElementById('spendAmountPreview').textContent='−';
+  document.getElementById('spendAfterBalance').textContent='−';
+  document.getElementById('spendAfterBalance').style.color='var(--text)';
+  document.getElementById('spendPlaceholderModal').classList.add('show');
+}
+
+function closeSpendPlaceholder(){
+  document.getElementById('spendPlaceholderModal').classList.remove('show');
+  spendEnvId=null;
+}
+
+function updateSpendPreview(){
+  const env=envelopes.find(e=>e.id===spendEnvId);
+  if(!env) return;
+  const amt=roundMoney(document.getElementById('spendAmountInput').value||0);
+  if(!amt){
+    document.getElementById('spendAmountPreview').textContent='−';
+    document.getElementById('spendAfterBalance').textContent='−';
+    document.getElementById('spendAfterBalance').style.color='var(--text)';
+    return;
+  }
+  const after=roundMoney(env.balance-amt);
+  document.getElementById('spendAmountPreview').textContent='−'+fmt(Math.abs(amt));
+  document.getElementById('spendAfterBalance').textContent=fmt(after);
+  document.getElementById('spendAfterBalance').style.color=after<0?'var(--red)':'var(--green)';
+}
+
 function openDeposit(envId){ depositEnvId=envId; const env=envelopes.find(e=>e.id===envId); document.getElementById('depositEnvName').textContent='Adding directly to: '+env.name; document.getElementById('dep_amount').value=''; document.getElementById('dep_note').value=''; document.getElementById('dep_date').value=new Date().toISOString().split('T')[0]; document.getElementById('depositModal').classList.add('show'); }
 function closeDeposit(){ document.getElementById('depositModal').classList.remove('show'); depositEnvId=null; }
 async function saveDeposit(){
