@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Deal Tracker</title>
+<!-- Phase 2C-4A: Direct Deposit delete/edit reversals can move buckets negative; confirmation shows transaction details. -->
 <!-- VERSION: shared-trip-expense-controls -->
 <!-- Patch: all successful saves now use the fixed Auto Audit popup instead of the top-of-form status box. -->
 <!-- Phase 1 Bucket wording: Deal Bucket Allocations vs Actual Bucket Cash labels. -->
@@ -13,10 +14,6 @@
 <!-- Phase 2B-2A: Verification save confirms matching history record before success message. -->
 <!-- Phase 2B-3: Discrepancy resolution adds Check Later and Adjust Bucket actions. -->
 <!-- Phase 2B-3A: Delete verification history safely; adjusted rows reverse bucket balance without changing deals. -->
-<!-- Phase 2B-3B: Rebuild bucket balances from envelope history to repair balance/history drift. -->
-<!-- Phase 2C-2: Spend Money saves withdrawals to envelope history and updates bucket balances. -->
-<!-- Phase 2C-3: Spend Money history entries can be edited/deleted like Add Money. -->
-<!-- Phase 2C-4: Negative bucket balances allowed with warning and bucket-page banner. -->
 <!-- Phase 2B-2: Save bucket verification records to history. No balance changes. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -155,7 +152,6 @@ tr.hl{background:rgba(0,229,160,0.05);}
 .env-actions{display:flex;gap:7px;}
 .env-btn{flex:1;padding:9px;border:none;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:0.76rem;font-weight:600;cursor:pointer;}
 .env-btn-add{background:rgba(0,229,160,0.12);color:var(--green);border:1px solid rgba(0,229,160,0.3);}
-.env-btn-spend{background:rgba(255,64,96,0.10);color:var(--red);border:1px solid rgba(255,64,96,0.35);}
 .env-btn-history{background:rgba(255,255,255,0.05);color:var(--muted);border:1px solid var(--border);}
 .env-btn-edit{background:rgba(155,125,255,0.1);color:var(--purple);border:1px solid rgba(155,125,255,0.3);}
 .env-btn-verify{background:rgba(245,200,66,0.10);color:var(--gold);border:1px solid rgba(245,200,66,0.35);}
@@ -425,7 +421,6 @@ tr.hl{background:rgba(0,229,160,0.05);}
 
 <!-- ══════════ TAB: BUCKETS ══════════ -->
 <div id="tab-buckets" style="display:none">
-  <div id="negativeBucketBanner"></div>
   <div class="totals-grid" id="bucketSummaryGrid"></div>
   <div id="envelopesList"></div>
   <div class="card">
@@ -512,8 +507,6 @@ tr.hl{background:rgba(0,229,160,0.05);}
       <div style="font-family:'Syne',sans-serif;font-size:0.92rem;font-weight:800;margin-bottom:7px;color:var(--green);">🧾 Bucket Audit</div>
       <p style="font-size:0.76rem;color:var(--muted);line-height:1.45;margin-bottom:10px;">Checks whether every deal's bucket amount was actually posted into envelope history, and whether envelope balances match their history totals.</p>
       <button class="save-btn" style="font-size:0.86rem;padding:12px" onclick="runBucketAudit()">Run Bucket Audit</button>
-      <button class="save-btn" style="font-size:0.86rem;padding:12px;margin-top:9px;background:var(--orange);color:#000" onclick="rebuildBucketBalancesFromHistory()">Rebuild Bucket Balances From History</button>
-      <p style="font-size:0.72rem;color:var(--muted);line-height:1.45;margin-top:8px;">Use this only when the audit says Actual Bucket Cash does not match History. It rewrites bucket balances from envelope history and does not change deal records.</p>
       <div id="bucketAuditResults" style="margin-top:12px;font-size:0.82rem;line-height:1.45;"></div>
     </div>
   </div>
@@ -618,27 +611,6 @@ tr.hl{background:rgba(0,229,160,0.05);}
 
 
 
-<!-- SPEND MONEY MODAL — Phase 2C-1 placeholder only, no saving/database/balance logic -->
-<div class="modal-overlay" id="spendPlaceholderModal">
-  <div class="modal">
-    <div class="modal-title" style="color:var(--red)">− Spend Money</div>
-    <div id="spendBucketName" style="font-family:'Syne',sans-serif;font-size:0.95rem;font-weight:800;margin-bottom:12px;color:var(--text);"></div>
-    <div class="calc-box" style="display:block;margin-bottom:13px;">
-      <div class="calc-row"><span class="calc-label">Current Bucket Balance</span><span id="spendCurrentBalance">$0</span></div>
-      <div class="calc-row"><span class="calc-label">Spend Amount</span><span id="spendAmountPreview">−</span></div>
-      <div class="calc-row"><span>Balance After Spend</span><span id="spendAfterBalance">−</span></div>
-    </div>
-    <div id="spendNegativeWarning" style="display:none;background:#2a0810;border:1px solid var(--red);color:var(--red);border-radius:10px;padding:10px 12px;font-size:0.82rem;line-height:1.45;margin-bottom:13px;"></div>
-    <div class="fg">
-      <div class="fi full"><label>Spend Amount ($)</label><input type="number" id="spendAmountInput" placeholder="Enter amount spent" oninput="updateSpendPreview()"></div>
-      <div class="fi full"><label>Spend Note</label><textarea id="spendNoteInput" placeholder="Example: shirts, website fee, supplies…"></textarea></div>
-      <div class="fi full"><label>Date</label><input type="date" id="spendDateInput"></div>
-    </div>
-    <p style="font-size:0.78rem;color:var(--muted);line-height:1.45;margin-top:4px;">Spend Money subtracts from this bucket, saves a dated history record, and runs the auto audit after saving.</p>
-    <div class="modal-btns"><button class="m-cancel" onclick="closeSpendPlaceholder()">Cancel</button><button class="m-danger" id="saveSpendBtn" onclick="saveSpend()">Save Spend</button></div>
-  </div>
-</div>
-
 <!-- VERIFY BUCKET MODAL — Phase 2B-1 fields only, no saving/database/balance logic -->
 <div class="modal-overlay" id="verifyPlaceholderModal">
   <div class="modal">
@@ -687,7 +659,7 @@ const DEFAULT_ENVELOPES=[
 ];
 
 // ── STATE ──
-let deals=[], envelopes=[], envHistory=[], listening=false, correcting=false, recog=null, editingId=null, depositEnvId=null, spendEnvId=null, editingEnvId=null, pendingAllocationOverrideAction=null;
+let deals=[], envelopes=[], envHistory=[], listening=false, correcting=false, recog=null, editingId=null, depositEnvId=null, editingEnvId=null, pendingAllocationOverrideAction=null;
 
 // ── INIT ──
 async function init(){
@@ -1083,8 +1055,10 @@ async function checkedDeleteHistoryRow(histRow){
 async function applyEnvelopeDelta(envId,delta,context='Envelope adjustment'){
   const env=envelopes.find(e=>e.id===envId);
   if(!env) throw new Error(context+' failed: envelope '+envId+' was not found.');
-  env.balance=Math.max(0,roundMoney(env.balance)+roundMoney(delta));
-  if(env.goal>0&&env.balance>env.goal) env.balance=env.goal;
+  const change=roundMoney(delta);
+  env.balance=roundMoney(env.balance)+change;
+  // Positive deposits/allocations still respect goal caps, but reversals must be allowed to go below zero.
+  if(change>0&&env.goal>0&&env.balance>env.goal) env.balance=env.goal;
   await checkedUpsertEnvelope(env,context);
   return env;
 }
@@ -1425,17 +1399,6 @@ async function saveEdit(forceAllocationOverride=false){
 // ── BUCKETS ──
 function renderBuckets(){
   const totalBal=envelopes.reduce((s,e)=>s+e.balance,0),totalGoal=envelopes.filter(e=>e.goal>0).reduce((s,e)=>s+e.goal,0),doneCount=envelopes.filter(e=>e.goal>0&&e.balance>=e.goal).length;
-  const negativeEnvelopes=envelopes.filter(e=>roundMoney(e.balance)<0);
-  const negBox=document.getElementById('negativeBucketBanner');
-  if(negBox){
-    if(negativeEnvelopes.length){
-      const negTotal=negativeEnvelopes.reduce((s,e)=>s+Math.abs(roundMoney(e.balance)),0);
-      const negList=negativeEnvelopes.map(e=>`${escapeHTML(e.name)}: ${fmt(e.balance)}`).join(' · ');
-      negBox.innerHTML=`<div style="background:#2a0810;border:1px solid var(--red);color:var(--red);border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:0.84rem;line-height:1.45;"><strong>⚠️ ${negativeEnvelopes.length} bucket${negativeEnvelopes.length===1?'':'s'} need repayment</strong><br><span style="color:var(--muted)">${negList}</span><br><span style="color:var(--muted)">Total repayment needed: <strong style="color:var(--red)">${fmt(negTotal)}</strong></span></div>`;
-    }else{
-      negBox.innerHTML='';
-    }
-  }
   document.getElementById('bucketSummaryGrid').innerHTML=`
     <div class="tc"><div class="tc-l">Actual Bucket Cash</div><div class="tc-v" style="color:var(--purple)">${fmt(totalBal)}</div></div>
     <div class="tc"><div class="tc-l">Total Goal</div><div class="tc-v" style="color:var(--orange)">${fmt(totalGoal)}</div></div>
@@ -1443,20 +1406,14 @@ function renderBuckets(){
 
   document.getElementById('envelopesList').innerHTML=envelopes.map(env=>{
     const isDone=env.goal>0&&env.balance>=env.goal;
-    const isNegative=roundMoney(env.balance)<0;
-    const pctFill=env.goal>0?Math.max(0,Math.min(100,(env.balance/env.goal*100))):null;
+    const pctFill=env.goal>0?Math.min(100,(env.balance/env.goal*100)):null;
     const hist=envHistory.filter(h=>h.envelope_id===env.id);
     const histHTML=hist.length?hist.slice(0,20).map(h=>{
       if(h.type==='verification'){
         return renderVerificationHistoryItem(h);
       }
-      const btns=h.type==='direct'?`<div style="display:flex;gap:4px;margin-left:8px;"><button onclick="editDeposit('${env.id}',${h.id})" style="background:rgba(155,125,255,0.15);border:1px solid var(--purple);color:var(--purple);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">✏️</button><button onclick="deleteDeposit('${env.id}',${h.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">🗑</button></div>`:(h.type==='spend'?`<div style="display:flex;gap:4px;margin-left:8px;"><button onclick="editSpend('${env.id}',${h.id})" style="background:rgba(155,125,255,0.15);border:1px solid var(--purple);color:var(--purple);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">✏️</button><button onclick="deleteSpend('${env.id}',${h.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">🗑</button></div>`:'');
-      const amount=roundMoney(h.amount);
-      const isSpend=h.type==='spend'||amount<0;
-      const amountText=(amount<0?'-':'+')+fmt(Math.abs(amount));
-      const amountColor=isSpend?'var(--red)':'var(--green)';
-      const typeLabel=h.type==='deal'?'From Deal':(h.type==='spend'?'Spend Money':'Direct Deposit');
-      return `<div class="history-item"><div><div>${escapeHTML(h.source||'')}</div><div class="h-source">${typeLabel}</div></div><div style="text-align:right;display:flex;align-items:center;"><div><div class="h-amt" style="color:${amountColor}">${amountText}</div><div class="h-date">${h.date}</div></div>${btns}</div></div>`;
+      const btns=h.type==='direct'?`<div style="display:flex;gap:4px;margin-left:8px;"><button onclick="editDeposit('${env.id}',${h.id})" style="background:rgba(155,125,255,0.15);border:1px solid var(--purple);color:var(--purple);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">✏️</button><button onclick="deleteDeposit('${env.id}',${h.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">🗑</button></div>`:'';
+      return `<div class="history-item"><div><div>${h.source}</div><div class="h-source">${h.type==='deal'?'From Deal':'Direct Deposit'}</div></div><div style="text-align:right;display:flex;align-items:center;"><div><div class="h-amt">+${fmt(h.amount)}</div><div class="h-date">${h.date}</div></div>${btns}</div></div>`;
     }).join(''):'<div style="color:var(--muted);font-size:0.78rem;padding:8px 0;font-style:italic">No history yet</div>';
     return `<div class="envelope-card">
       <div class="env-header">
@@ -1465,13 +1422,11 @@ function renderBuckets(){
       </div>
       ${pctFill!==null?`<div class="progress-bar"><div class="progress-fill ${isDone?'complete':''}" style="width:${pctFill}%"></div></div>`:''}
       <div class="env-stats">
-        <div class="env-stat"><div class="env-stat-label">Balance</div><div class="env-stat-val" style="color:${isNegative?'var(--red)':'var(--purple)'}">${fmt(env.balance)}</div></div>
+        <div class="env-stat"><div class="env-stat-label">Balance</div><div class="env-stat-val" style="color:var(--purple)">${fmt(env.balance)}</div></div>
         ${env.goal>0?`<div class="env-stat"><div class="env-stat-label">Goal</div><div class="env-stat-val">${fmt(env.goal)}</div></div><div class="env-stat"><div class="env-stat-label">Remaining</div><div class="env-stat-val" style="color:${isDone?'var(--green)':'var(--orange)'}">${isDone?'Done!':fmt(env.goal-env.balance)}</div></div>`:`<div class="env-stat"><div class="env-stat-label">Type</div><div class="env-stat-val" style="color:var(--muted);font-size:0.75rem">Ongoing</div></div>`}
       </div>
-      ${isNegative?`<div style="background:#2a0810;border:1px solid rgba(255,64,96,0.65);color:var(--red);border-radius:9px;padding:8px 10px;font-size:0.76rem;line-height:1.35;margin-bottom:10px;">⚠️ Needs repayment: <strong>${fmt(Math.abs(env.balance))}</strong></div>`:''}
       <div class="env-actions">
         <button class="env-btn env-btn-add" onclick="openDeposit('${env.id}')">+ Add Money</button>
-        <button class="env-btn env-btn-spend" onclick="openSpendPlaceholder('${env.id}')">− Spend</button>
         <button class="env-btn env-btn-verify" onclick="openVerifyPlaceholder('${env.id}')">✅ Verify</button>
         <button class="env-btn env-btn-history" onclick="toggleHistory('hist_${env.id}')">📋 History</button>
         <button class="env-btn env-btn-edit" onclick="openEnvEdit('${env.id}')">✏️ Edit</button>
@@ -1709,173 +1664,6 @@ function closeVerifyPlaceholder(){
 }
 
 // ── DIRECT DEPOSIT ──
-
-function openSpendPlaceholder(envId){
-  spendEnvId=envId;
-  const env=envelopes.find(e=>e.id===envId);
-  if(!env){ alert('Envelope not found.'); return; }
-  const modal=document.getElementById('spendPlaceholderModal');
-  modal.dataset.editId='';
-  modal.dataset.editEnvId='';
-  document.getElementById('spendBucketName').textContent=env.name;
-  document.getElementById('spendCurrentBalance').textContent=fmt(env.balance);
-  document.getElementById('spendAmountInput').value='';
-  document.getElementById('spendNoteInput').value='';
-  document.getElementById('spendDateInput').value=new Date().toISOString().split('T')[0];
-  document.getElementById('spendAmountPreview').textContent='−';
-  document.getElementById('spendAfterBalance').textContent='−';
-  document.getElementById('spendAfterBalance').style.color='var(--text)';
-  const negWarn=document.getElementById('spendNegativeWarning');
-  if(negWarn){ negWarn.style.display='none'; negWarn.innerHTML=''; }
-  const saveBtn=document.getElementById('saveSpendBtn');
-  if(saveBtn){ saveBtn.disabled=false; saveBtn.textContent='Save Spend'; }
-  document.getElementById('spendPlaceholderModal').classList.add('show');
-}
-
-function closeSpendPlaceholder(){
-  const modal=document.getElementById('spendPlaceholderModal');
-  modal.classList.remove('show');
-  modal.dataset.editId='';
-  modal.dataset.editEnvId='';
-  const negWarn=document.getElementById('spendNegativeWarning');
-  if(negWarn){ negWarn.style.display='none'; negWarn.innerHTML=''; }
-  spendEnvId=null;
-}
-
-function getSpendAfterBalance(env, amount){
-  const modal=document.getElementById('spendPlaceholderModal');
-  const editId=modal&&modal.dataset.editId?parseInt(modal.dataset.editId):null;
-  const before=roundMoney(env.balance);
-  if(editId){
-    const oldHist=envHistory.find(h=>h.id===editId&&h.envelope_id===env.id&&h.type==='spend');
-    const oldAmount=oldHist?roundMoney(oldHist.amount):0;
-    return roundMoney(before-oldAmount-amount);
-  }
-  return roundMoney(before-amount);
-}
-
-function updateSpendPreview(){
-  const env=envelopes.find(e=>e.id===spendEnvId);
-  if(!env) return;
-  const amt=roundMoney(document.getElementById('spendAmountInput').value||0);
-  const warn=document.getElementById('spendNegativeWarning');
-  if(!amt){
-    document.getElementById('spendAmountPreview').textContent='−';
-    document.getElementById('spendAfterBalance').textContent='−';
-    document.getElementById('spendAfterBalance').style.color='var(--text)';
-    if(warn){ warn.style.display='none'; warn.innerHTML=''; }
-    return;
-  }
-  const after=getSpendAfterBalance(env,amt);
-  document.getElementById('spendAmountPreview').textContent='−'+fmt(Math.abs(amt));
-  document.getElementById('spendAfterBalance').textContent=fmt(after);
-  document.getElementById('spendAfterBalance').style.color=after<0?'var(--red)':'var(--green)';
-  if(warn){
-    if(after<0){
-      warn.style.display='block';
-      warn.innerHTML=`⚠️ This will put <strong>${escapeHTML(env.name)}</strong> at <strong>${fmt(after)}</strong>. This is allowed, but it means this bucket needs to be repaid later.`;
-    }else{
-      warn.style.display='none';
-      warn.innerHTML='';
-    }
-  }
-}
-
-async function saveSpend(){
-  const env=envelopes.find(e=>e.id===spendEnvId);
-  if(!env){ alert('Envelope not found.'); return; }
-  const amount=roundMoney(document.getElementById('spendAmountInput').value);
-  if(!amount||amount<=0){ alert('Please enter a spend amount greater than 0.'); return; }
-  const note=(document.getElementById('spendNoteInput').value||'Bucket spend').trim();
-  const date=document.getElementById('spendDateInput').value||new Date().toISOString().split('T')[0];
-  const modal=document.getElementById('spendPlaceholderModal');
-  const editId=modal.dataset.editId?parseInt(modal.dataset.editId):null;
-  const projectedAfter=getSpendAfterBalance(env,amount);
-  if(projectedAfter<0){
-    const ok=confirm(`⚠️ This will put ${env.name} at ${fmt(projectedAfter)}.
-
-Negative balances are allowed, but this means the bucket needs to be repaid later.
-
-Cancel = Go Back
-OK = Save Anyway`);
-    if(!ok) return;
-  }
-  const btn=document.getElementById('saveSpendBtn');
-  if(btn){ btn.disabled=true; btn.textContent=editId?'Updating…':'Saving…'; }
-  try{
-    const before=roundMoney(env.balance);
-    let after;
-    if(editId){
-      const oldHist=envHistory.find(h=>h.id===editId&&h.envelope_id===env.id&&h.type==='spend');
-      if(!oldHist) throw new Error('Spend history entry not found. Refresh data and try again.');
-      const oldAmount=roundMoney(oldHist.amount);
-      after=getSpendAfterBalance(env,amount);
-      env.balance=after;
-      await checkedUpsertEnvelope(env,'Spend money edit balance update');
-      const {error:histErr}=await sb.from('envelope_history').update({amount:-amount,source:note,date,type:'spend'}).eq('id',editId);
-      if(histErr) throw histErr;
-      const idx=envHistory.findIndex(h=>h.id===editId);
-      if(idx>=0) envHistory[idx]={...envHistory[idx],amount:-amount,source:note,date,type:'spend'};
-      closeSpendPlaceholder();
-      renderBuckets();
-      showAuditReminder(`✅ Spend entry updated for ${env.name}. Balance changed from ${fmt(before)} to ${fmt(after)}.`);
-    }else{
-      after=getSpendAfterBalance(env,amount);
-      env.balance=after;
-      await checkedUpsertEnvelope(env,'Spend money balance update');
-      const histItem={envelope_id:env.id,date,amount:-amount,source:note,type:'spend'};
-      await checkedInsertHistory(histItem,'Spend money history insert');
-      closeSpendPlaceholder();
-      renderBuckets();
-      showAuditReminder(`✅ Spend saved for ${env.name}. ${fmt(amount)} spent. Balance changed from ${fmt(before)} to ${fmt(after)}.`);
-    }
-  }catch(err){
-    showStatus('Error saving spend: '+err.message,'s-err');
-    await loadAllData();
-  }finally{
-    if(btn){ btn.disabled=false; btn.textContent='Save Spend'; }
-  }
-}
-
-function editSpend(envId,histId){
-  const env=envelopes.find(e=>e.id===envId); if(!env) return;
-  const h=envHistory.find(x=>x.id===histId&&x.envelope_id===envId&&x.type==='spend');
-  if(!h){ alert('Spend history entry not found. Refresh data and try again.'); return; }
-  spendEnvId=envId;
-  const modal=document.getElementById('spendPlaceholderModal');
-  modal.dataset.editId=histId;
-  modal.dataset.editEnvId=envId;
-  document.getElementById('spendBucketName').textContent='Editing: '+env.name;
-  document.getElementById('spendCurrentBalance').textContent=fmt(env.balance);
-  document.getElementById('spendAmountInput').value=Math.abs(roundMoney(h.amount));
-  document.getElementById('spendNoteInput').value=h.source||'';
-  document.getElementById('spendDateInput').value=h.date||new Date().toISOString().split('T')[0];
-  const saveBtn=document.getElementById('saveSpendBtn');
-  if(saveBtn){ saveBtn.disabled=false; saveBtn.textContent='Update Spend'; }
-  updateSpendPreview();
-  modal.classList.add('show');
-}
-
-async function deleteSpend(envId,histId){
-  const h=envHistory.find(x=>x.id===histId&&x.envelope_id===envId&&x.type==='spend');
-  if(!h){ alert('Spend history entry not found. Refresh data and try again.'); return; }
-  const env=envelopes.find(e=>e.id===envId); if(!env) return;
-  const amount=Math.abs(roundMoney(h.amount));
-  if(!confirm(`Delete this spend entry? ${fmt(amount)} will be added back to ${env.name}.`)) return;
-  const before=roundMoney(env.balance);
-  try{
-    await checkedDeleteHistoryRow(h);
-    await applyEnvelopeDelta(env.id,amount,'Spend money delete balance update');
-    const updatedEnv=envelopes.find(e=>e.id===env.id);
-    const after=updatedEnv?roundMoney(updatedEnv.balance):roundMoney(before+amount);
-    renderBuckets();
-    showAuditReminder(`✅ Spend deleted for ${env.name}. Balance changed from ${fmt(before)} to ${fmt(after)}.`);
-  }catch(err){
-    showStatus('Error deleting spend: '+err.message,'s-err');
-    await loadAllData();
-  }
-}
-
 function openDeposit(envId){ depositEnvId=envId; const env=envelopes.find(e=>e.id===envId); document.getElementById('depositEnvName').textContent='Adding directly to: '+env.name; document.getElementById('dep_amount').value=''; document.getElementById('dep_note').value=''; document.getElementById('dep_date').value=new Date().toISOString().split('T')[0]; document.getElementById('depositModal').classList.add('show'); }
 function closeDeposit(){ document.getElementById('depositModal').classList.remove('show'); depositEnvId=null; }
 async function saveDeposit(){
@@ -1892,8 +1680,10 @@ async function saveDeposit(){
       if(oldHist&&getHistoryDealId(oldHist)!==getHistoryDealId({source:note})){
         if(!confirm('This deposit appears connected to a deal/repair note. Changing the note may affect the audit. Continue?')) return;
       }
-      env.balance=Math.max(0,roundMoney(env.balance)-oldAmount+amount);
-      if(env.goal>0&&env.balance>env.goal) env.balance=env.goal;
+      const depositDelta=roundMoney(amount)-roundMoney(oldAmount);
+      env.balance=roundMoney(env.balance)+depositDelta;
+      // Increasing a deposit can cap at the goal, but reducing a deposit must be able to expose a negative balance.
+      if(depositDelta>0&&env.goal>0&&env.balance>env.goal) env.balance=env.goal;
       await checkedUpsertEnvelope(env,'Direct deposit edit balance update');
       const {error:histErr}=await sb.from('envelope_history').update({amount,source:note,date}).eq('id',editId);
       if(histErr) throw histErr;
@@ -1933,9 +1723,16 @@ async function deleteDeposit(envId, histId){
   const h=envHistory.find(x=>x.id===histId);
   if(!h) return;
   const linkedDealId=getHistoryDealId(h);
+  const envForMessage=envelopes.find(e=>e.id===envId);
+  const depositAmount=roundMoney(h.amount);
+  const depositNote=h.source||'Direct deposit';
+  const depositDate=h.date||'No date';
+  const bucketName=envForMessage?envForMessage.name:'this bucket';
+  const afterDelete=envForMessage?roundMoney(envForMessage.balance)-depositAmount:null;
+  const detailMsg='Delete this deposit?\n\nBucket: '+bucketName+'\nAmount: +'+fmt(depositAmount)+'\nNote: '+depositNote+'\nDate: '+depositDate+'\n\nThis will reduce '+bucketName+' by '+fmt(depositAmount)+(afterDelete!==null?' and leave it at '+fmt(afterDelete)+'.':'.');
   const confirmMsg=linkedDealId
-    ? 'This deposit appears connected to Deal '+linkedDealId+'. Deleting it may make that deal fail the bucket audit. Delete anyway?'
-    : 'Delete this deposit? The amount will be reversed from the envelope balance.';
+    ? detailMsg+'\n\nThis deposit appears connected to Deal '+linkedDealId+'. Deleting it may make that deal fail the bucket audit. Delete anyway?'
+    : detailMsg;
   if(!confirm(confirmMsg)) return;
   const env=envelopes.find(e=>e.id===envId); if(!env) return;
   try{
@@ -2062,69 +1859,6 @@ function auditDealBucketPosting(dealId,expectedBucketAmount){
   const rows=dealHistoryRows(dealId);
   const historyTotal=rows.reduce((s,h)=>s+(Math.round(parseFloat(h.amount)||0)),0);
   return {pass:historyTotal===expected,expected,historyTotal,count:rows.length,rows};
-}
-
-async function rebuildBucketBalancesFromHistory(){
-  if(!confirm('Rebuild ALL bucket balances from envelope history?\n\nThis will not change deal records or history records. It will rewrite each bucket balance so Actual Bucket Cash matches History.')) return;
-  const box=document.getElementById('bucketAuditResults');
-  if(box){
-    box.innerHTML='<div style="padding:11px;border-radius:10px;border:1px solid var(--orange);background:#2a1808;color:var(--orange);font-weight:700;margin-bottom:10px;">Rebuilding bucket balances from history…</div>';
-  }
-  try{
-    const {data:latestHist,error:histErr}=await sb.from('envelope_history').select('*').order('created_at',{ascending:false});
-    if(histErr) throw new Error('Could not load envelope history: '+histErr.message);
-
-    const {data:latestEnvs,error:envErr}=await sb.from('envelope_balances').select('*');
-    if(envErr) throw new Error('Could not load bucket balances: '+envErr.message);
-
-    envHistory=latestHist||[];
-    const envRows=(latestEnvs&&latestEnvs.length)?latestEnvs:envelopes;
-
-    const totals={};
-    envHistory.forEach(h=>{
-      totals[h.envelope_id]=roundMoney((totals[h.envelope_id]||0)+roundMoney(h.amount));
-    });
-
-    const changes=[];
-    for(const row of envRows){
-      const oldBalance=roundMoney(row.balance);
-      const newBalance=roundMoney(totals[row.id]||0);
-      const updated={...row,balance:newBalance};
-      await sb.from('envelope_balances').upsert({
-        id:updated.id,
-        name:updated.name,
-        pct:roundMoney(updated.pct),
-        goal:roundMoney(updated.goal),
-        grp:updated.grp||'',
-        realloc:updated.realloc||'',
-        balance:newBalance
-      });
-      if(oldBalance!==newBalance){
-        changes.push({name:updated.name||updated.id,oldBalance,newBalance,diff:roundMoney(newBalance-oldBalance)});
-      }
-    }
-
-    await loadAllData();
-    showTab('backup');
-    runBucketAudit();
-
-    const changeHtml=changes.length
-      ? changes.map(c=>`<div><strong>${c.name}</strong>: ${fmt(c.oldBalance)} → ${fmt(c.newBalance)} (${c.diff>=0?'+':''}${fmt(c.diff)})</div>`).join('')
-      : '<div>No bucket balances needed changes.</div>';
-
-    if(box){
-      box.innerHTML='<div style="padding:11px;border-radius:10px;border:1px solid var(--green);background:#082a18;color:var(--green);font-weight:700;margin-bottom:10px;">✅ Rebuild complete.</div>'+
-        '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:10px;">'+changeHtml+'</div>'+
-        box.innerHTML;
-    }
-
-    showAutoAuditResult('Rebuilt bucket balances from envelope history. Deal records were not changed.');
-  }catch(err){
-    if(box){
-      box.innerHTML='<div style="padding:11px;border-radius:10px;border:1px solid var(--red);background:#2a0810;color:var(--red);font-weight:700;margin-bottom:10px;">⚠️ Rebuild failed: '+err.message+'</div>';
-    }
-    showStatus('Rebuild failed: '+err.message,'s-err');
-  }
 }
 
 function runBucketAudit(){
