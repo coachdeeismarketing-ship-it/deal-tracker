@@ -166,6 +166,16 @@ tr.hl{background:rgba(0,229,160,0.05);}
 .h-source{color:var(--muted);font-size:0.72rem;}
 .h-amt{font-weight:700;color:var(--green);}
 .h-date{color:var(--muted);font-size:0.7rem;}
+.bucket-history-tools{margin:0 0 10px 0;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:10px;}
+.bucket-history-count{font-size:0.76rem;color:var(--muted);line-height:1.35;margin-bottom:8px;}
+.bucket-history-count strong{color:var(--text);}
+.bucket-history-search{position:relative;margin-bottom:8px;}
+.bucket-history-search input{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 10px 9px 28px;font-family:'DM Sans',sans-serif;font-size:0.78rem;outline:none;}
+.bucket-history-filter-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+.bucket-history-filter-row select,.bucket-history-filter-row input{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 9px;font-family:'DM Sans',sans-serif;font-size:0.76rem;outline:none;}
+.bucket-history-buttons{display:flex;gap:8px;}
+.bucket-history-buttons button{flex:1;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 8px;font-family:'DM Sans',sans-serif;font-size:0.76rem;font-weight:700;cursor:pointer;}
+.bucket-history-empty{color:var(--muted);font-size:0.78rem;padding:8px 0;font-style:italic;}
 
 /* SETTINGS */
 .settings-row{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--border);font-size:0.86rem;}
@@ -688,6 +698,8 @@ const DEFAULT_ENVELOPES=[
 
 // ── STATE ──
 let deals=[], envelopes=[], envHistory=[], listening=false, correcting=false, recog=null, editingId=null, depositEnvId=null, spendEnvId=null, editingEnvId=null, pendingAllocationOverrideAction=null;
+const BUCKET_HISTORY_DEFAULT_LIMIT=20;
+let bucketHistoryUI={};
 
 // ── INIT ──
 async function init(){
@@ -1446,21 +1458,11 @@ function renderBuckets(){
     const isNegative=roundMoney(env.balance)<0;
     const pctFill=env.goal>0?Math.max(0,Math.min(100,(env.balance/env.goal*100))):null;
     const hist=envHistory.filter(h=>h.envelope_id===env.id);
-    const histHTML=hist.length?hist.slice(0,20).map(h=>{
-      if(h.type==='verification'){
-        return renderVerificationHistoryItem(h);
-      }
-      const btns=h.type==='direct'?`<div style="display:flex;gap:4px;margin-left:8px;"><button onclick="editDeposit('${env.id}',${h.id})" style="background:rgba(155,125,255,0.15);border:1px solid var(--purple);color:var(--purple);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">✏️</button><button onclick="deleteDeposit('${env.id}',${h.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">🗑</button></div>`:(h.type==='spend'?`<div style="display:flex;gap:4px;margin-left:8px;"><button onclick="editSpend('${env.id}',${h.id})" style="background:rgba(155,125,255,0.15);border:1px solid var(--purple);color:var(--purple);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">✏️</button><button onclick="deleteSpend('${env.id}',${h.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">🗑</button></div>`:'');
-      const amount=roundMoney(h.amount);
-      const isSpend=h.type==='spend'||amount<0;
-      const amountText=(amount<0?'-':'+')+fmt(Math.abs(amount));
-      const amountColor=isSpend?'var(--red)':'var(--green)';
-      const typeLabel=h.type==='deal'?'From Deal':(h.type==='spend'?'Spend Money':'Direct Deposit');
-      return `<div class="history-item"><div><div>${escapeHTML(h.source||'')}</div><div class="h-source">${typeLabel}</div></div><div style="text-align:right;display:flex;align-items:center;"><div><div class="h-amt" style="color:${amountColor}">${amountText}</div><div class="h-date">${h.date}</div></div>${btns}</div></div>`;
-    }).join(''):'<div style="color:var(--muted);font-size:0.78rem;padding:8px 0;font-style:italic">No history yet</div>';
+    const ui=getBucketHistoryUI(env.id);
+    const histHTML=buildBucketHistoryHTML(env,hist);
     return `<div class="envelope-card">
       <div class="env-header">
-        <div><div class="env-name">${env.name}</div><div class="env-group">${env.grp}</div></div>
+        <div><div class="env-name">${escapeHTML(env.name)}</div><div class="env-group">${escapeHTML(env.grp||'')}</div></div>
         <span class="env-pct ${isDone?'done':''}">${isDone?'✅ Done':env.pct+'%'}</span>
       </div>
       ${pctFill!==null?`<div class="progress-bar"><div class="progress-fill ${isDone?'complete':''}" style="width:${pctFill}%"></div></div>`:''}
@@ -1476,17 +1478,107 @@ function renderBuckets(){
         <button class="env-btn env-btn-history" onclick="toggleHistory('hist_${env.id}')">📋 History</button>
         <button class="env-btn env-btn-edit" onclick="openEnvEdit('${env.id}')">✏️ Edit</button>
       </div>
-      <div class="history-list" id="hist_${env.id}">${histHTML}</div>
+      <div class="history-list ${ui.open?'open':''}" id="hist_${env.id}">${histHTML}</div>
     </div>`;
   }).join('');
 
   const totalPct=envelopes.reduce((s,e)=>s+e.pct,0);
   document.getElementById('settingsList').innerHTML=
-    envelopes.map(env=>`<div class="settings-row"><div><div class="settings-label">${env.name}</div><div class="settings-sub">${env.grp}${env.goal>0?' · Goal: '+fmt(env.goal):''}${env.realloc?' · When done: '+env.realloc:''}</div></div><span class="settings-val">${env.pct}%</span></div>`).join('')
+    envelopes.map(env=>`<div class="settings-row"><div><div class="settings-label">${escapeHTML(env.name)}</div><div class="settings-sub">${escapeHTML(env.grp||'')}${env.goal>0?' · Goal: '+fmt(env.goal):''}${env.realloc?' · When done: '+escapeHTML(env.realloc):''}</div></div><span class="settings-val">${env.pct}%</span></div>`).join('')
     +`<div class="settings-row" style="border-top:2px solid var(--border);margin-top:4px;padding-top:10px"><div class="settings-label" style="font-weight:800">Total</div><span class="settings-val" style="color:${totalPct===100?'var(--green)':'var(--red)'}">${totalPct}% ${totalPct===100?'✅':'⚠ Should be 100%'}</span></div>`;
 }
 
-function toggleHistory(id){ document.getElementById(id).classList.toggle('open'); }
+function getBucketHistoryUI(envId){
+  if(!bucketHistoryUI[envId]) bucketHistoryUI[envId]={open:false,showAll:false,search:'',type:'',from:'',to:''};
+  return bucketHistoryUI[envId];
+}
+
+function bucketHistoryTypeLabel(type){
+  return type==='deal'?'From Deal':(type==='spend'?'Spend Money':(type==='verification'?'Verification':'Direct Deposit'));
+}
+
+function bucketHistorySearchText(h){
+  return [h.source||'',h.type||'',bucketHistoryTypeLabel(h.type),h.amount,h.date,h.id].join(' ').toLowerCase();
+}
+
+function filterBucketHistory(hist,ui){
+  return hist.filter(h=>{
+    const q=(ui.search||'').trim().toLowerCase();
+    if(q && !bucketHistorySearchText(h).includes(q)) return false;
+    if(ui.type && h.type!==ui.type) return false;
+    if(ui.from && (h.date||'')<ui.from) return false;
+    if(ui.to && (h.date||'')>ui.to) return false;
+    return true;
+  });
+}
+
+function renderBucketHistoryRow(envId,h){
+  if(h.type==='verification') return renderVerificationHistoryItem(h);
+  const btns=h.type==='direct'?`<div style="display:flex;gap:4px;margin-left:8px;"><button onclick="editDeposit('${envId}',${h.id})" style="background:rgba(155,125,255,0.15);border:1px solid var(--purple);color:var(--purple);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">✏️</button><button onclick="deleteDeposit('${envId}',${h.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">🗑</button></div>`:(h.type==='spend'?`<div style="display:flex;gap:4px;margin-left:8px;"><button onclick="editSpend('${envId}',${h.id})" style="background:rgba(155,125,255,0.15);border:1px solid var(--purple);color:var(--purple);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">✏️</button><button onclick="deleteSpend('${envId}',${h.id})" style="background:rgba(255,64,96,0.1);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:3px 7px;font-size:0.68rem;cursor:pointer;font-family:inherit;">🗑</button></div>`:'');
+  const amount=roundMoney(h.amount);
+  const isSpend=h.type==='spend'||amount<0;
+  const amountText=(amount<0?'-':'+')+fmt(Math.abs(amount));
+  const amountColor=isSpend?'var(--red)':'var(--green)';
+  const typeLabel=bucketHistoryTypeLabel(h.type);
+  return `<div class="history-item"><div><div>${escapeHTML(h.source||'')}</div><div class="h-source">${typeLabel}</div></div><div style="text-align:right;display:flex;align-items:center;"><div><div class="h-amt" style="color:${amountColor}">${amountText}</div><div class="h-date">${escapeHTML(h.date||'')}</div></div>${btns}</div></div>`;
+}
+
+function buildBucketHistoryHTML(env,hist){
+  const ui=getBucketHistoryUI(env.id);
+  const filtered=filterBucketHistory(hist,ui);
+  const visible=ui.showAll?filtered:filtered.slice(0,BUCKET_HISTORY_DEFAULT_LIMIT);
+  const showingText=`Showing ${visible.length} of ${filtered.length}${filtered.length!==hist.length?' filtered from '+hist.length:''}`;
+  const rows=visible.length?visible.map(h=>renderBucketHistoryRow(env.id,h)).join(''):'<div class="bucket-history-empty">No matching history entries.</div>';
+  return `<div class="bucket-history-tools">
+    <div class="bucket-history-count"><strong>History (${hist.length} ${hist.length===1?'entry':'entries'})</strong><br>${showingText}</div>
+    <div class="bucket-history-search"><span class="search-icon">🔍</span><input type="text" value="${escapeHTML(ui.search||'')}" placeholder="Search this bucket history..." oninput="updateBucketHistoryFilter('${env.id}','search',this.value)"></div>
+    <div class="bucket-history-filter-row">
+      <select onchange="updateBucketHistoryFilter('${env.id}','type',this.value)">
+        <option value="" ${ui.type===''?'selected':''}>All Types</option>
+        <option value="deal" ${ui.type==='deal'?'selected':''}>From Deal</option>
+        <option value="direct" ${ui.type==='direct'?'selected':''}>Direct Deposit</option>
+        <option value="spend" ${ui.type==='spend'?'selected':''}>Spend Money</option>
+        <option value="verification" ${ui.type==='verification'?'selected':''}>Verification</option>
+      </select>
+      <button onclick="resetBucketHistoryFilters('${env.id}')" style="background:var(--bg);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:8px 9px;font-family:'DM Sans',sans-serif;font-size:0.76rem;font-weight:700;cursor:pointer;">✖ Clear</button>
+    </div>
+    <div class="bucket-history-filter-row">
+      <input type="date" value="${escapeHTML(ui.from||'')}" onchange="updateBucketHistoryFilter('${env.id}','from',this.value)">
+      <input type="date" value="${escapeHTML(ui.to||'')}" onchange="updateBucketHistoryFilter('${env.id}','to',this.value)">
+    </div>
+    <div class="bucket-history-buttons">
+      ${filtered.length>BUCKET_HISTORY_DEFAULT_LIMIT?`<button onclick="toggleBucketHistoryShowAll('${env.id}')">${ui.showAll?'Collapse to 20':'Show All '+filtered.length}</button>`:''}
+    </div>
+  </div>${rows}`;
+}
+
+function updateBucketHistoryFilter(envId,field,value){
+  const ui=getBucketHistoryUI(envId);
+  ui[field]=value;
+  ui.showAll=false;
+  ui.open=true;
+  renderBuckets();
+}
+
+function resetBucketHistoryFilters(envId){
+  const ui=getBucketHistoryUI(envId);
+  ui.search=''; ui.type=''; ui.from=''; ui.to=''; ui.showAll=false; ui.open=true;
+  renderBuckets();
+}
+
+function toggleBucketHistoryShowAll(envId){
+  const ui=getBucketHistoryUI(envId);
+  ui.showAll=!ui.showAll;
+  ui.open=true;
+  renderBuckets();
+}
+
+function toggleHistory(id){
+  const envId=String(id).replace('hist_','');
+  const ui=getBucketHistoryUI(envId);
+  ui.open=!ui.open;
+  renderBuckets();
+}
 
 function parseVerificationSource(source){
   const result={status:'Verification',expected:0,counted:0,difference:0,note:''};
